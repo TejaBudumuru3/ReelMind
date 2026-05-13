@@ -1,0 +1,85 @@
+generator client_ts {
+  provider        = "prisma-client-js"
+  previewFeatures = ["postgresqlExtensions"]
+}
+
+generator client_python {
+  provider                    = "prisma-client-py"
+  previewFeatures             = ["postgresqlExtensions"]
+  output                      = "../../../apps/server/prisma_db" 
+  enable_experimental_decimal = true
+}
+
+datasource db {
+  provider   = "postgresql"
+  url        = env("DATABASE_URL")
+  extensions = [vector]
+}
+
+model User {
+  id          String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  email       String    @unique
+  api_credits Int       @default(10)
+  created_at  DateTime  @default(now())
+  sessions    Session[]
+}
+
+model Session {
+  id         String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  user_id    String    @db.Uuid
+  title      String    @default("New Chat")
+  created_at DateTime  @default(now())
+  updated_at DateTime  @updatedAt
+
+  user       User      @relation(fields: [user_id], references: [id], onDelete: Cascade)
+  messages   Message[]
+  jobs       Job[]
+  chunks     Chunk[]
+}
+
+model Message {
+  id         String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  session_id String   @db.Uuid
+  role       String   
+  content    String
+  created_at DateTime @default(now())
+
+  session    Session  @relation(fields: [session_id], references: [id], onDelete: Cascade)
+
+  @@index([session_id])
+}
+
+model Job {
+  id              String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  session_id      String   @db.Uuid
+  video_id        String   @unique 
+  url             String
+  status          String   @default("pending")
+  views           BigInt   @default(0)
+  likes           BigInt   @default(0)
+  comments        BigInt   @default(0)
+  engagement_rate Decimal  @default(0.00) @db.Decimal(5, 2)
+  error_message   String?
+  created_at      DateTime @default(now())
+  updated_at      DateTime @updatedAt
+
+  session         Session  @relation(fields: [session_id], references: [id], onDelete: Cascade)
+  chunks          Chunk[]
+
+  @@index([session_id])
+}
+
+model Chunk {
+  id         String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  job_id     String   @db.Uuid
+  session_id String   @db.Uuid
+  content    String
+  embedding  Unsupported("vector(1024)")? 
+  metadata   Json?
+  created_at DateTime @default(now())
+
+  job        Job      @relation(fields: [job_id], references: [id], onDelete: Cascade)
+  session    Session  @relation(fields: [session_id], references: [id], onDelete: Cascade)
+
+  @@index([session_id])
+}
