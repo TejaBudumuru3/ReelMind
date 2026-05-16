@@ -49,12 +49,19 @@ model Message {
   @@index([session_id])
 }
 
+enum Status {
+  PENDING
+  PROCESSING
+  COMPLETED
+  FAILED
+}
+
 model Job {
   id              String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   session_id      String   @db.Uuid
   video_id        String   @unique 
   url             String
-  status          String   @default("pending")
+  status          Status   @default(PENDING)
   views           BigInt   @default(0)
   likes           BigInt   @default(0)
   comments        BigInt   @default(0)
