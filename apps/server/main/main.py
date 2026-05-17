@@ -5,6 +5,11 @@ from pydantic import BaseModel
 from qstash import QStash, Receiver
 from dotenv import load_dotenv
 
+# Ensure the server directory is in sys.path so worker and prisma_db import correctly
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+from worker.youtube import async_transcription_pipeline
+
 load_dotenv()
 
 QSTASH_TOKEN = os.getenv('QSTASH_TOKEN')
@@ -44,7 +49,7 @@ async def ingest_url(payload: IngestPayload):
 
 
 @app.post("/worker")
-async def worker(req: Request):
+async def worker(req: Request, background_tasks: BackgroundTasks):
     signature = req.headers.get("Upstash-Signature")
     if signature is None:
         raise HTTPException(status_code=401, detail="Invalid")

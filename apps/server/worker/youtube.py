@@ -1,7 +1,11 @@
 import os
+import sys
 import asyncio
 from urllib.parse import urlparse, parse_qs
 from decimal import Decimal
+
+# Append the server directory to python path to resolve prisma_db import
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from googleapiclient.discovery import build
 from googleapiclient.errors import HttpError
@@ -51,12 +55,19 @@ def get_translation_with_groq(transcript: str) -> str| None:
 
 
 def extract_youtube_id(url: str) -> str | None:
-    """Safely extracts the v= parameter from a YouTube URL."""
+    """Safely extracts the video ID from standard, mobile, shorts, and youtu.be YouTube URLs."""
     parsed = urlparse(url)
-    if parsed.hostname in ['www.youtube.com', 'youtube.com']:
+    hostname = parsed.hostname or ''
+    
+    if hostname in ['www.youtube.com', 'youtube.com', 'm.youtube.com']:
+        # Handle YouTube shorts paths: /shorts/VIDEO_ID
+        if parsed.path.startswith('/shorts/'):
+            parts = parsed.path.split('/')
+            if len(parts) >= 3:
+                return parts[2]
         return parse_qs(parsed.query).get('v', [None])[0]
-    elif parsed.hostname in ['youtu.be']:
-        return parsed.path[1:]
+    elif hostname in ['youtu.be']:
+        return parsed.path.strip('/')
     return None
 
 def get_youtube_metadata(video_id: str) -> dict:
@@ -117,37 +128,49 @@ async def async_transcription_pipeline(job_id: str, url: str):
             print("="*60)
             try:
                 transcriptionList = yt_client.list(video_id=yt_id)
-                print("list are: ",transcriptionList)
+                print("list are: ", transcriptionList)
+                
+                transcripts_iter = list(transcriptionList)
+                if not transcripts_iter:
+                    raise Exception("No transcripts are available for this video.")
+                
+                firstTranscript = transcripts_iter[0]
+                
                 try:
+                    # 1. Try direct English transcripts
                     transcripts = transcriptionList.find_transcript(['en', 'en-US', 'en-CA', 'en-GB', 'en-IN'])
                     transcript = transcripts.fetch()
                     raw_text = ""
                     for item in transcript:
                         raw_text += item.text + " "
-                    print("Raw text: ", raw_text)
                     final_transcript = raw_text
-                except:
-                    print("in except block")
+                    print("✅ Successfully fetched English transcript directly.")
+                except Exception as e:
+                    print("English transcript not found directly. Attempting YouTube translation...")
                     try:
-                        firstTranscript = list(transcriptionList)[0]
-                        print("select langauge ", firstTranscript.language)
+                        # 2. Try native translation to English via YouTube API
                         translated_text = firstTranscript.translate('en')
-                        final_transcript = translated_text.fetch()
-                        print(f"final transcript: {final_transcript}")
-                    except Exception as e:
-                        print("error in getting translating using youtubeapi trying with groq")
+                        transcript = translated_text.fetch()
+                        raw_text = ""
+                        for item in transcript:
+                            raw_text += item.text + " "
+                        final_transcript = raw_text
+                        print(f"✅ Successfully translated {firstTranscript.language} to English via YouTube.")
+                    except Exception as translate_err:
+                        print("YouTube translation failed. Fetching raw transcript and translating with Groq...")
+                        # 3. Fallback: Fetch raw transcript in native language, then translate with Groq
                         api_response = firstTranscript.fetch()
-                        # print("API response: ", api_response)
                         raw_text = ""
                         for item in api_response:
                             raw_text += item.text + " "
-                        print("Raw text: ", raw_text)
-                        text = get_translation_with_groq(raw_text)
-                        final_transcript = text
+                        translated_via_groq = get_translation_with_groq(raw_text)
+                        if translated_via_groq:
+                            final_transcript = translated_via_groq
+                            print("✅ Successfully translated raw transcript to English via Groq.")
+                        else:
+                            raise Exception("Groq translation returned empty response.")
             except Exception as e:
-                print("error in getting transcripts", e)
-
-                # we need to add whisper pipeline here-------------------------------------------
+                raise Exception(f"Failed to fetch or translate transcript: {str(e)}")
         
         # 3. Update the database with the verified metadata and prepare for Vectorization
         await db.job.update(
@@ -159,7 +182,7 @@ async def async_transcription_pipeline(job_id: str, url: str):
                 "comments": metadata.get("comments", 0),
                 "engagement_rate": metadata.get("engagement_rate", Decimal("0.00")),
                 # Temporarily store text here to verify it works before we build Pipeline 2
-                "error_message": "SUCCESS: " + transcript_text[:150] + "..." 
+                "error_message": "SUCCESS: " + final_transcript[:150] + "..." 
             }
         )
         print("🔥 Golden Path extraction complete. Ready for Vectorization.")
@@ -175,4 +198,4 @@ async def async_transcription_pipeline(job_id: str, url: str):
         await db.disconnect()
 
 if __name__ == "__main__":
-    asyncio.run(async_transcription_pipeline("0ca6ac00-1891-4d1d-a99b-111fc3f915b3", "https://www.youtube.com/watch?v=KfYb7JWO_o"))
+    asyncio.run(async_transcription_pipeline("85cc6203-7d30-4778-aad3-889a24b36e51", "https://www.youtube.com/watch?v=O2EwFbxYeDM"))
