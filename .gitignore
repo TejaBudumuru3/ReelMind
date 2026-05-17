@@ -1,4 +1,4 @@
-apps/server/venv/
+apps/server/.venv/
 */*node_modules
 apps/server/prisma_db/
 .vscode/settings.json

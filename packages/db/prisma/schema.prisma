@@ -4,7 +4,7 @@ generator client_ts {
 }
 
 generator client_python {
-  provider                    = "prisma-client-py"
+  provider                    = "../../apps/server/.venv/bin/prisma-client-py"
   previewFeatures             = ["postgresqlExtensions"]
   output                      = "../../../apps/server/prisma_db" 
   enable_experimental_decimal = true
