@@ -29,7 +29,7 @@ model Session {
   user_id    String    @db.Uuid
   title      String    @default("New Chat")
   created_at DateTime  @default(now())
-  updated_at DateTime  @updatedAt
+  updated_at DateTime?  @updatedAt
 
   user       User      @relation(fields: [user_id], references: [id], onDelete: Cascade)
   messages   Message[]
@@ -59,7 +59,16 @@ enum Status {
 model Job {
   id              String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   session_id      String   @db.Uuid
-  video_id        String   @unique 
+  video_id        String?   @unique 
+  creator         String?
+  title           String?
+  follower_count  BigInt?
+  hashtags        String[]
+  label           String?   @default("A")
+  thumbnail_url   String?
+  upload_date     String?
+  duration        Int?
+  platform        String?
   url             String
   status          Status   @default(PENDING)
   views           BigInt   @default(0)
@@ -68,7 +77,8 @@ model Job {
   engagement_rate Decimal  @default(0.00) @db.Decimal(5, 2)
   error_message   String?
   created_at      DateTime @default(now())
-  updated_at      DateTime @updatedAt
+  updated_at      DateTime? @updatedAt
+  transcript      String?
 
   session         Session  @relation(fields: [session_id], references: [id], onDelete: Cascade)
   chunks          Chunk[]
@@ -81,6 +91,7 @@ model Chunk {
   job_id     String   @db.Uuid
   session_id String   @db.Uuid
   content    String
+  chunk_index Int
   embedding  Unsupported("vector(1024)")? 
   metadata   Json?
   created_at DateTime @default(now())

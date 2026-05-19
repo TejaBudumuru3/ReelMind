@@ -13,6 +13,7 @@ langgraph==1.2.0
 langchain-groq==1.1.2
 langchain-nvidia-ai-endpoints==1.3.0
 langchain-text-splitters==1.1.2
+langchain-community
 
 # LLM / Embeddings
 groq==0.37.1
