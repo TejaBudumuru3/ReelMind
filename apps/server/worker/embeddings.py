@@ -5,6 +5,7 @@ from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain_community.embeddings import JinaEmbeddings
 from datetime import datetime
 import json
+import asyncio
 
 load_dotenv()
 
@@ -29,7 +30,7 @@ async def embedd_and_store(transcript: str, job_id: str, session_id: str):
 
     print(f"Splits into { len(chunks) } chunks")
 
-    vectors = embedder.embed_documents(chunks)
+    vectors = await asyncio.to_thread(embedder.embed_documents, chunks)
 
     print(f"Generated { len(vectors) } vectors")
 
@@ -59,6 +60,6 @@ async def embedd_and_store(transcript: str, job_id: str, session_id: str):
         print("Chunks inserted into database")
     except Exception as e:
         print(f"Error inserting chunks: {e}")
-
+        raise
     finally:
         await con.close()

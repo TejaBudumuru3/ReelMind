@@ -13,10 +13,10 @@ from dotenv import load_dotenv
 from googleapiclient.discovery import build
 from worker.embeddings import embedd_and_store
 
-YOUTUBE_API_KEY = os.getenv("YOUTUBE_API")
 
 
 load_dotenv()
+YOUTUBE_API_KEY = os.getenv("YOUTUBE_API")
 
 cookie_path = os.path.join(os.path.dirname(__file__), 'cookies.txt') 
 
@@ -34,7 +34,7 @@ def extract_social_metadata(info: dict) -> dict:
             print("⚠️ Detected a playlist/series URL instead of a single video.")
             info = info['entries'][0]
         
-        if info.get('extractor').lower() == "youtube":
+        if (info.get('extractor') or  '').lower() == "youtube":
             youtube = build('youtube', 'v3', developerKey=YOUTUBE_API_KEY)
             request = youtube.videos().list(
                 part="statistics",
@@ -159,7 +159,7 @@ def get_transcription_from_groq(info: dict) -> str | None:
             headers = info.get('http_headers', {})
             
             with httpx.Client() as client:
-                response = client.get(media_url, headers=headers, follow_redirects=True)
+                response = client.get(media_url, headers=headers, timeout=120, follow_redirects=True)
                 audio_bytes = response.content
     
 
@@ -220,14 +220,8 @@ async def async_pipeline_link_to_text(job_id: str, url: str):
                         "updated_at": datetime.now()
                     }
                 )
+                await db.execute_raw(f"NOTIFY job_updates, $1",job_id)
                 raise Exception("Video duration exceeded")
-
-            # Label of the video
-            # count = await db.job.count(
-            #     where={ "session_id": job.session_id}
-            # )
-
-            # label = chr(65 + count)
 
             #  extracting metadata
             metadata = extract_social_metadata(info)
@@ -268,6 +262,7 @@ async def async_pipeline_link_to_text(job_id: str, url: str):
                         "transcript": transcription
                     }
                 )
+                await db.execute_raw("SELECT pg_notify('job_updates', $1)", job_id)
                 print("pipeline completed successfully")
             else:
                 await db.job.update(
@@ -278,11 +273,11 @@ async def async_pipeline_link_to_text(job_id: str, url: str):
                         "updated_at": datetime.now()
                     }
                 )
-        
+                await db.execute_raw("SELECT pg_notify('job_updates', $1)", job_id)
         else:
             raise Exception("Job not found")
     except Exception as e:
-        print(f"Database connection failed: {e}")
+        print(f"Pipeline failed: {e}")
     finally:
         await db.disconnect()
 
