@@ -6,3 +6,4 @@ apps/server/.env
 apps/server/main/__pycache__/
 .vscode/extensions.json
 apps/server/worker/__pycache__/
+apps/server/rag/__pycache__/

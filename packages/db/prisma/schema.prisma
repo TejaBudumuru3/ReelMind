@@ -40,7 +40,7 @@ model Session {
 model Message {
   id         String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   session_id String   @db.Uuid
-  role       String   
+  role       Role   
   content    String
   created_at DateTime @default(now())
 
@@ -54,6 +54,10 @@ enum Status {
   PROCESSING
   COMPLETED
   FAILED
+}
+enum Role{
+    USER
+    AI
 }
 
 model Job {
@@ -100,4 +104,5 @@ model Chunk {
   session    Session  @relation(fields: [session_id], references: [id], onDelete: Cascade)
 
   @@index([session_id])
+  @@index([job_id])
 }
