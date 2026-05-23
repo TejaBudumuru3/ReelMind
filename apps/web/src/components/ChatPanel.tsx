@@ -36,7 +36,7 @@ export default function ChatPanel({ sessionId }: { sessionId: string }) {
     setMessages((prev) => [...prev, { role: "AI", content: "" }]);
 
     try {
-      const res = await fetch("http://localhost:8000/chat", {
+      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000"}/chat`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ session_id: sessionId, message: userMsg }),
