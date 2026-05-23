@@ -188,13 +188,21 @@ async def async_pipeline_link_to_text(job_id: str, url: str):
     
         await db.connect()
         job = await db.job.find_first(
-            where={ "id": job_id, "status": "PENDING" },
+            where={ "id": job_id },
         )
 
-        if job:
+        if not job:
+            raise Exception("Job not found")
+        
+        # Idempotency: if QStash retries and job is already done, skip silently
+        if job.status in ['COMPLETED', 'FAILED', 'PROCESSING']:
+            print(f"⏭️ Job {job_id} already {job.status}, skipping duplicate delivery.")
+            return
+
+        if job.status == 'PENDING':
 
             ydl_options = {
-                'format': 'worstaudio[protocol!*=m3u8][protocol!=dash]/bestaudio[protocol!*=m3u8][protocol!=dash]/worst',
+                'format': 'worstaudio[protocol!*=m3u8][protocol!=dash]/bestaudio[protocol!*=m3u8][protocol!=dash]/worst/bestaudio/best',
                 'quiet': True,
                 'no_warnings': True,
                 'skip_download': True
@@ -220,18 +228,64 @@ async def async_pipeline_link_to_text(job_id: str, url: str):
                         "updated_at": datetime.now()
                     }
                 )
-                await db.execute_raw(f"NOTIFY job_updates, $1",job_id)
+                await db.execute_raw(f"SELECT pg_notify('job_updates', '{job_id}')")
                 raise Exception("Video duration exceeded")
 
             #  extracting metadata
             metadata = extract_social_metadata(info)
+            video_id = metadata.get('id')
+            
+            if video_id:
+                existing_job = await db.job.find_first(
+                    where={
+                        "video_id": video_id,
+                        "status": "COMPLETED",
+                        "id": { "not": job_id }
+                    }
+                )
+                
+                if existing_job:
+                    print(f"♻️ CACHE HIT! Reusing data from previous job {existing_job.id}")
+                    await db.job.update(
+                        where={ "id": job_id },
+                        data={
+                            "status": 'COMPLETED',
+                            "video_id": video_id,
+                            "url": url,
+                            "views": existing_job.views,
+                            "likes": existing_job.likes,
+                            "comments": existing_job.comments,
+                            "engagement_rate": existing_job.engagement_rate,
+                            "hashtags": existing_job.hashtags,
+                            "title": existing_job.title,
+                            "creator": existing_job.creator,
+                            "follower_count": existing_job.follower_count,
+                            "duration": existing_job.duration,
+                            "upload_date": existing_job.upload_date,
+                            "thumbnail_url": existing_job.thumbnail_url,
+                            "platform": existing_job.platform,
+                            "transcript": existing_job.transcript,
+                            "updated_at": datetime.now()
+                        }
+                    )
+                    
+                    await db.execute_raw(f"""
+                        INSERT INTO "Chunk" (id, job_id, session_id, content, chunk_index, embedding, metadata, created_at)
+                        SELECT gen_random_uuid(), '{job_id}'::uuid, '{job.session_id}'::uuid, content, chunk_index, embedding, metadata, now()
+                        FROM "Chunk"
+                        WHERE job_id = '{existing_job.id}'::uuid
+                    """)
+                    
+                    await db.execute_raw(f"SELECT pg_notify('job_updates', '{job_id}')")
+                    return
+
             await db.job.update(
                 where={ "id": job_id},
                 data={
                     "status": 'PROCESSING',
                     "url": url,
                     # "label": label,
-                    "video_id": metadata.get('id'),
+                    "video_id": video_id,
                     "views": metadata.get('views'),
                     "likes": metadata.get('likes'),
                     "comments": metadata.get('comments'),
@@ -262,7 +316,7 @@ async def async_pipeline_link_to_text(job_id: str, url: str):
                         "transcript": transcription
                     }
                 )
-                await db.execute_raw("SELECT pg_notify('job_updates', $1)", job_id)
+                await db.execute_raw(f"SELECT pg_notify('job_updates', '{job_id}')")
                 print("pipeline completed successfully")
             else:
                 await db.job.update(
@@ -273,11 +327,26 @@ async def async_pipeline_link_to_text(job_id: str, url: str):
                         "updated_at": datetime.now()
                     }
                 )
-                await db.execute_raw("SELECT pg_notify('job_updates', $1)", job_id)
-        else:
-            raise Exception("Job not found")
+                await db.execute_raw(f"SELECT pg_notify('job_updates', '{job_id}')")
     except Exception as e:
         print(f"Pipeline failed: {e}")
+        try:
+            # Guard: never overwrite a COMPLETED job on error
+            current = await db.job.find_unique(where={"id": job_id})
+            if current and current.status not in ['COMPLETED', 'FAILED']:
+                await db.job.update(
+                    where={"id": job_id},
+                    data={
+                        "status": "FAILED",
+                        "error_message": str(e),
+                        "updated_at": datetime.now()
+                    }
+                )
+                await db.execute_raw(f"SELECT pg_notify('job_updates', '{job_id}')")
+            else:
+                print(f"⏭️ Skipping error update — job {job_id} is already {current.status if current else 'missing'}")
+        except Exception as inner_e:
+            print(f"Failed to update job status on error: {inner_e}")
     finally:
         await db.disconnect()
 

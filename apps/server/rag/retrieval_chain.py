@@ -44,7 +44,7 @@ def build_system_prompt(metadata: list, chunks: list):
     chunk_lines = []
     for c in chunks:
         chunk_lines.append(
-            f"[Video {c['label']}, Chunk {c['chunk_index']}]: {c['content']}"
+            f"**Video {c['label']}**: {c['content']}"
         )
     
     chunks_section = "\n".join(chunk_lines) if chunk_lines else "NO RELEVANT INFORMATION WAS FOUND"
@@ -61,7 +61,7 @@ def build_system_prompt(metadata: list, chunks: list):
         INSTRUCTIONS:
         - When answering about engagement, views, likes, or comments, use the VIDEO METADATA above. These are exact numbers.
         - When answering about content, hooks, structure, or what was said, use the TRANSCRIPT CHUNKS above.
-        - Always cite your source as [Video X, Chunk Y] when referencing transcript content.
+        - Always cite your source as **Video X** when referencing transcript content.
         - For comparison questions, analyze both videos and provide specific differences.
         - For single-video questions, focus on that specific video only.
         - Be specific and data-driven. Avoid generic advice.

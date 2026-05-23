@@ -8,7 +8,6 @@ from dotenv import load_dotenv
 from prisma_db import Prisma
 import asyncio
 from fastapi.middleware.cors import CORSMiddleware
-import asyncpg
 from worker.ingest import async_pipeline_link_to_text
 from rag.retrieval_chain import stream_chat
 
@@ -30,6 +29,7 @@ receiver = Receiver(
 class IngestPayload(BaseModel):
     url: str
     session_id: str
+    label: str = None
 
 class ChatPayload(BaseModel):
     session_id: str
@@ -67,28 +67,23 @@ async def ingest_url(payload: IngestPayload):
             data={"api_credits": {"decrement": 1}}
         )
 
+        label = payload.label
+        if not label:
+            count = await db.job.count(
+                where={ "session_id": payload.session_id}
+            )
+            label = chr(65 + count)
+
+
         job = await db.job.create(
             data={
                 "session_id": payload.session_id,
                 "status": "PENDING",
-                "url": payload.url
-            }
-        )
-        # Label of the video
-        count = await db.job.count(
-            where={ "session_id": job.session_id}
-        )
-
-        label = chr(65 + count - 1)
-
-        await db.job.update(
-            where={
-                "id": job.id
-            },
-            data={
+                "url": payload.url,
                 "label": label
             }
         )
+
 
         res = qstash_client.message.publish_json(
             url=worker_url,
@@ -157,77 +152,51 @@ async def worker(req: Request):
         db = Prisma()
         await db.connect()
         try:
-            await db.job.update(
-                where={ "id": job_id },
-                data={ "status": "FAILED", "error_message": str(e) }
-            )
-            await db.execute_raw("SELECT pg_notify('job_updates', $1)", job_id)
+            current = await db.job.find_unique(where={"id": job_id})
+            if current and current.status not in ['COMPLETED', 'FAILED']:
+                await db.job.update(
+                    where={ "id": job_id },
+                    data={ "status": "FAILED", "error_message": str(e) }
+                )
+                await db.execute_raw(f"SELECT pg_notify('job_updates', '{job_id}')")
+            else:
+                print(f"⏭️ Skipping — job already {current.status if current else 'missing'}")
         except Exception as e:
             print(f"Database connection failed: {e}")
         finally:
             await db.disconnect()
         
-        # Return 500 so QStash knows to retry
-        return Response(status_code=500)
+        # Return 200 so QStash does NOT retry (we already handled the error)
+        return Response(status_code=200)
         
 
-@app.get('/job/{job_id}/stream')
-async def stream_job(job_id: str):
-    
-    async def event_generator():
-
-        db = Prisma()
-        await db.connect()
-
-        try:
-            job = await db.job.find_unique(
-                where={
-                    "id": job_id
-                }
-            )
-
-            if not job:
-                yield f"data: { json.dumps({'status': 'NOT_FOUND'})}\n\n"
-                return
-                
-            if job.status in ['COMPLETED', "FAILED"]:
-                yield f"data: {json.dumps({'status': job.status, 'error': job.error_message})}\n\n"
-                return
-        finally:
-            await db.disconnect()
-
-        conn = await asyncpg.connect(os.getenv('DATABASE_URL'))
-        event = asyncio.Event()        
-
-        def on_notify(connection, pid, channel, message):
-            
-            if message == job_id:
-                event.set()
-            
-        try:
-            await conn.add_listener('job_updates', on_notify)
-            yield f"data: {json.dumps({'status': 'PROCESSING'})}\n\n"
-
-            await event.wait()
-
-            db = Prisma()
-            await db.connect()
-            job = await db.job.find_unique(
-                where={
-                    "id": job_id
-                }
-            )
-
-
-            yield f"data: {json.dumps({'status': job.status, 'error': job.error_message})}\n\n"
-            
-        finally:
-            await db.disconnect()
-            await conn.remove_listener('job_updates', on_notify)
-            await conn.close()
+@app.get('/job/{job_id}/status')
+async def get_job_status(job_id: str):
+    db = Prisma()
+    await db.connect()
+    try:
+        job = await db.job.find_unique(where={"id": job_id})
+        if not job:
+            return {"status": "NOT_FOUND"}
         
-    return StreamingResponse(event_generator(),
-    media_type="text/event-stream")
+        res = {"status": job.status, "error": job.error_message}
+        if job.status == "COMPLETED":
+            res["job_data"] = {
+                "label": job.label,
+                "creator": job.creator,
+                "title": job.title,
+                "platform": job.platform,
+                "thumbnail_url": job.thumbnail_url,
+                "views": int(job.views) if job.views else 0,
+                "likes": int(job.likes) if job.likes else 0,
+                "comments": int(job.comments) if job.comments else 0,
+                "engagement_rate": float(job.engagement_rate) if job.engagement_rate else 0.0,
+                "follower_count": int(job.follower_count) if job.follower_count else 0,
+                "duration": job.duration,
+            }
+        return res
+    finally:
+        await db.disconnect()
 
 @app.post('/chat')
 async def chat_endpoint(payload: ChatPayload):
