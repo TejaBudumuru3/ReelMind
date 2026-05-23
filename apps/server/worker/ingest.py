@@ -88,6 +88,39 @@ def extract_social_metadata(info: dict) -> dict:
         print(f"Metadata extraction failed: {e}")
         return {"views": 0, "likes": 0, "comments": 0, "engagement_rate": Decimal("0.00")}
 
+import base64
+import os
+import tempfile
+
+def get_secure_ydl_opts():
+    """Decodes the cookie string from .env and creates a temporary file."""
+    b64_cookies = os.getenv("COOKIES")
+    
+    base_options = {
+        'format': 'worstaudio[protocol!*=m3u8][protocol!=dash]/bestaudio[protocol!*=m3u8][protocol!=dash]/worst/bestaudio/best',
+        'quiet': True,
+        'no_warnings': True,
+        'skip_download': True
+    }
+    
+    if not b64_cookies:
+        return base_options
+
+    cookie_file = tempfile.NamedTemporaryFile(delete=False, mode='w', suffix='.txt')
+    
+    try:
+        # Decode the Base64 string back to normal text
+        decoded_bytes = base64.b64decode(b64_cookies)
+        cookie_file.write(decoded_bytes.decode('utf-8'))
+        cookie_file.close() # Close to save, but keep on disk temporarily
+        
+        base_options['cookiefile'] = cookie_file.name # Pass the temp file path to yt-dlp
+        return base_options
+    except Exception as e:
+        print(f"Cookie decode failed: {e}")
+        return base_options
+
+
 def get_audio_limit(info: dict) -> dict:
 
     duration = info.get('duration') or 0
@@ -201,17 +234,7 @@ async def async_pipeline_link_to_text(job_id: str, url: str):
 
         if job.status == 'PENDING':
 
-            ydl_options = {
-                'format': 'worstaudio[protocol!*=m3u8][protocol!=dash]/bestaudio[protocol!*=m3u8][protocol!=dash]/worst/bestaudio/best',
-                'quiet': True,
-                'no_warnings': True,
-                'skip_download': True
-            }
-
-            if os.path.exists(cookie_path):
-                ydl_options['cookiefile'] = cookie_path
-            else:
-                print("⚠️ Warning: cookies.txt not found. Instagram/TikTok may block extraction.")
+            ydl_options = get_secure_ydl_opts()
             
             with yt_dlp.YoutubeDL(ydl_options) as ydl:
                 info = ydl.extract_info(url=url, download=False)
