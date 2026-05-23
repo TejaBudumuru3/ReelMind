@@ -4,9 +4,7 @@ const nextConfig: NextConfig = {
   transpilePackages: ["db"],
 
   // 2. Prevent Webpack from destroying the Prisma Rust engine
-  experimental: {
-    serverComponentsExternalPackages: ["@prisma/client"],
-  },
+  serverExternalPackages: ["@prisma/client"],
 };
 
 export default nextConfig;
