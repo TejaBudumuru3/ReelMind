@@ -1,7 +1,7 @@
 generator client_ts {
   provider        = "prisma-client-js"
   previewFeatures = ["postgresqlExtensions"]
-  output          = "../../apps/web/node_modules/.prisma/client"
+  output          = "../../apps/web/node_modules/@prisma/client"
 }
 
 generator client_python {
