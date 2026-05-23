@@ -1,0 +1,8 @@
+.git
+.vercel
+apps/web/.next
+apps/web/node_modules
+node_modules
+apps/server/.venv
+apps/server/__pycache__
+packages/db/node_modules
