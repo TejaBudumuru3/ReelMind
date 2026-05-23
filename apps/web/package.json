@@ -3,6 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
+    "postinstall": "prisma generate --schema=../../packages/db/prisma/schema.prisma --generator=client_ts",
     "dev": "next dev",
     "build": "cd ../../packages/db && npx prisma@5.17.0 generate --generator client_ts && cd ../../apps/web && next build",
     "start": "next start",
@@ -10,6 +11,7 @@
   },
   "dependencies": {
     "@prisma/client": "^5.17.0",
+    "prisma": "^5.17.0",
     "db": "file:../../packages/db",
     "framer-motion": "^12.40.0",
     "lucide-react": "^1.16.0",
