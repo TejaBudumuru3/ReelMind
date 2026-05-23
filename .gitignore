@@ -7,3 +7,6 @@ apps/server/main/__pycache__/
 .vscode/extensions.json
 apps/server/worker/__pycache__/
 apps/server/rag/__pycache__/
+apps/web/.next/
+apps/web/.next/cache/.rscinfo
+apps/web/node_modules/

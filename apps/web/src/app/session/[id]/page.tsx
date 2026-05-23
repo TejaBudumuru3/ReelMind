@@ -23,7 +23,7 @@ export default function SessionPage({ params }: { params: Promise<{ id: string }
   useEffect(() => {
     const pollJob = async (jobId: string, setStatus: (s: string) => void, setVideo: (v: VideoData) => void) => {
       try {
-        const res = await fetch(`http://localhost:8000/job/${jobId}/status`);
+        const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000"}/job/${jobId}/status`);
         const data = await res.json();
         setStatus(data.status);
         if (data.status === "COMPLETED" && data.job_data) {
