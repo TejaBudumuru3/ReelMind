@@ -103,26 +103,42 @@ def get_secure_ydl_opts():
         'skip_download': True,
         'extractor_args': {
             'youtube': {
-                'player_client': ['android', 'ios']
+                'player_client': ['mweb'],
+                'player_skip': ['webpage', 'configs']
             }
+        },
+        'http_headers': {
+            'User-Agent': 'Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.6422.113 Mobile Safari/537.36',
+            'Accept-Language': 'en-US,en;q=0.9',
         }
     }
     
     if not b64_cookies:
+        print("⚠️ WARNING: No COOKIES env var found! yt-dlp will run without authentication.")
         return base_options
 
     cookie_file = tempfile.NamedTemporaryFile(delete=False, mode='w', suffix='.txt')
     
     try:
-        # Decode the Base64 string back to normal text
         decoded_bytes = base64.b64decode(b64_cookies)
-        cookie_file.write(decoded_bytes.decode('utf-8'))
-        cookie_file.close() # Close to save, but keep on disk temporarily
+        decoded_text = decoded_bytes.decode('utf-8')
+        cookie_file.write(decoded_text)
+        cookie_file.close()
         
-        base_options['cookiefile'] = cookie_file.name # Pass the temp file path to yt-dlp
+        # Count how many cookie lines we loaded per domain
+        lines = [l for l in decoded_text.strip().split('\n') if l and not l.startswith('#')]
+        domains = {}
+        for l in lines:
+            parts = l.split('\t')
+            if len(parts) >= 7:
+                d = parts[0]
+                domains[d] = domains.get(d, 0) + 1
+        print(f"🍪 Loaded {len(lines)} cookies from env: {dict(domains)}")
+        
+        base_options['cookiefile'] = cookie_file.name
         return base_options
     except Exception as e:
-        print(f"Cookie decode failed: {e}")
+        print(f"❌ Cookie decode failed: {e}")
         return base_options
 
 
