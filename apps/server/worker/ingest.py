@@ -110,23 +110,32 @@ def get_cookies_file_path():
     cookie_file = tempfile.NamedTemporaryFile(delete=False, mode='w', suffix='.txt')
     try:
         decoded_bytes = base64.b64decode(b64_cookies)
-        decoded_text = decoded_bytes.decode('utf-8')
+        decoded_text = decoded_bytes.decode('utf-8', errors='ignore')
         
-        # MozillaCookieJar requires this exact header to load cookies
-        if not decoded_text.startswith("# Netscape HTTP Cookie File"):
-            cookie_file.write("# Netscape HTTP Cookie File\n\n")
-            
-        cookie_file.write(decoded_text)
-        cookie_file.close()
+        # Forcibly write a pristine Netscape header
+        cookie_file.write("# Netscape HTTP Cookie File\n\n")
         
-        lines = [l for l in decoded_text.strip().split('\n') if l and not l.startswith('#')]
+        lines = decoded_text.splitlines()
+        valid_lines = 0
         domains = {}
-        for l in lines:
-            parts = l.split('\t')
-            if len(parts) >= 7:
-                d = parts[0]
-                domains[d] = domains.get(d, 0) + 1
-        print(f"🍪 Loaded {len(lines)} cookies from env: {dict(domains)}")
+        
+        for line in lines:
+            line = line.strip()
+            # Skip empty lines or any broken/duplicate headers
+            if not line or "Netscape HTTP Cookie File" in line:
+                continue
+                
+            cookie_file.write(line + "\n")
+            
+            if not line.startswith('#'):
+                parts = line.split('\t')
+                if len(parts) >= 7:
+                    valid_lines += 1
+                    d = parts[0]
+                    domains[d] = domains.get(d, 0) + 1
+                    
+        cookie_file.close()
+        print(f"🍪 Loaded {valid_lines} cookies from env: {dict(domains)}")
         
         _COOKIE_FILE_PATH = cookie_file.name
         return _COOKIE_FILE_PATH
