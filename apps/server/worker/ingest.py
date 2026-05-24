@@ -92,11 +92,50 @@ def extract_social_metadata(info: dict) -> dict:
 import base64
 import os
 import tempfile
+import requests
+from http.cookiejar import MozillaCookieJar
+from worker.youtube import yt_client
+
+_COOKIE_FILE_PATH = None
+
+def get_cookies_file_path():
+    global _COOKIE_FILE_PATH
+    if _COOKIE_FILE_PATH and os.path.exists(_COOKIE_FILE_PATH):
+        return _COOKIE_FILE_PATH
+        
+    b64_cookies = os.getenv("COOKIES")
+    if not b64_cookies:
+        return None
+        
+    cookie_file = tempfile.NamedTemporaryFile(delete=False, mode='w', suffix='.txt')
+    try:
+        decoded_bytes = base64.b64decode(b64_cookies)
+        decoded_text = decoded_bytes.decode('utf-8')
+        
+        # MozillaCookieJar requires this exact header to load cookies
+        if not decoded_text.startswith("# Netscape HTTP Cookie File"):
+            cookie_file.write("# Netscape HTTP Cookie File\n\n")
+            
+        cookie_file.write(decoded_text)
+        cookie_file.close()
+        
+        lines = [l for l in decoded_text.strip().split('\n') if l and not l.startswith('#')]
+        domains = {}
+        for l in lines:
+            parts = l.split('\t')
+            if len(parts) >= 7:
+                d = parts[0]
+                domains[d] = domains.get(d, 0) + 1
+        print(f"🍪 Loaded {len(lines)} cookies from env: {dict(domains)}")
+        
+        _COOKIE_FILE_PATH = cookie_file.name
+        return _COOKIE_FILE_PATH
+    except Exception as e:
+        print(f"Failed to load cookies: {e}")
+        return None
 
 def get_secure_ydl_opts():
     """Decodes the cookie string from .env and creates a temporary file."""
-    b64_cookies = os.getenv("COOKIES")
-    
     base_options = {
         'format': 'worstaudio[protocol!*=m3u8][protocol!=dash]/bestaudio[protocol!*=m3u8][protocol!=dash]/worst/bestaudio/best',
         'quiet': True,
@@ -114,33 +153,13 @@ def get_secure_ydl_opts():
         }
     }
     
-    if not b64_cookies:
-        print("⚠️ WARNING: No COOKIES env var found! yt-dlp will run without authentication.")
-        return base_options
-
-    cookie_file = tempfile.NamedTemporaryFile(delete=False, mode='w', suffix='.txt')
-    
-    try:
-        decoded_bytes = base64.b64decode(b64_cookies)
-        decoded_text = decoded_bytes.decode('utf-8')
-        cookie_file.write(decoded_text)
-        cookie_file.close()
+    cookie_path = get_cookies_file_path()
+    if cookie_path:
+        base_options['cookiefile'] = cookie_path
+    else:
+        print("⚠️ WARNING: No cookies found! yt-dlp will run without authentication.")
         
-        # Count how many cookie lines we loaded per domain
-        lines = [l for l in decoded_text.strip().split('\n') if l and not l.startswith('#')]
-        domains = {}
-        for l in lines:
-            parts = l.split('\t')
-            if len(parts) >= 7:
-                d = parts[0]
-                domains[d] = domains.get(d, 0) + 1
-        print(f"🍪 Loaded {len(lines)} cookies from env: {dict(domains)}")
-        
-        base_options['cookiefile'] = cookie_file.name
-        return base_options
-    except Exception as e:
-        print(f"❌ Cookie decode failed: {e}")
-        return base_options
+    return base_options
 
 
 def get_audio_limit(info: dict) -> dict:
@@ -239,7 +258,20 @@ def get_transcription_from_groq(info: dict) -> str | None:
 async def _fetch_youtube_transcript(yt_id: str) -> str | None:
     """Fetch transcript using youtube-transcript-api. No yt-dlp involved."""
     try:
-        transcript_list = yt_client.list(video_id=yt_id)
+        cookie_path = get_cookies_file_path()
+        client = None
+        
+        if cookie_path:
+            session = requests.Session()
+            cookie_jar = MozillaCookieJar(cookie_path)
+            cookie_jar.load(ignore_discard=True, ignore_expires=True)
+            session.cookies.update(cookie_jar)
+            client = YouTubeTranscriptApi(http_client=session)
+            print("🍪 Using authenticated youtube-transcript-api client")
+        else:
+            client = YouTubeTranscriptApi()
+            
+        transcript_list = client.list(video_id=yt_id)
         transcripts_iter = list(transcript_list)
         if not transcripts_iter:
             raise Exception("No transcripts available")

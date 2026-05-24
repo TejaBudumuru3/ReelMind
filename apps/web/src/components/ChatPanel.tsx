@@ -9,7 +9,7 @@ interface Message {
   content: string;
 }
 
-export default function ChatPanel({ sessionId }: { sessionId: string }) {
+export default function ChatPanel({ sessionId, hasVideos = true }: { sessionId: string; hasVideos?: boolean }) {
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState("");
   const [isLoading, setIsLoading] = useState(false);
@@ -117,11 +117,11 @@ export default function ChatPanel({ sessionId }: { sessionId: string }) {
         <input
           value={input}
           onChange={(e) => setInput(e.target.value)}
-          placeholder="Ask about these videos..."
+          placeholder={hasVideos ? "Ask about these videos..." : "Please add a video to start chatting..."}
           style={styles.input}
-          disabled={isLoading}
+          disabled={isLoading || !hasVideos}
         />
-        <button type="submit" style={styles.sendButton} disabled={!input.trim() || isLoading}>
+        <button type="submit" style={styles.sendButton} disabled={!input.trim() || isLoading || !hasVideos}>
           <Send size={18} />
         </button>
       </form>
