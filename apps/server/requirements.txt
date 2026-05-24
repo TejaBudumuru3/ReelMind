@@ -23,6 +23,8 @@ asyncpg==0.31.0
 # Video extraction
 google-api-python-client==2.196.0
 yt-dlp
+youtube-transcript-api
+isodate
 
 # QStash (optional)
 qstash==3.4.0
