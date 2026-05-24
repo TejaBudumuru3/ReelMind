@@ -7,7 +7,7 @@ import VideoCard, { VideoData } from "@/components/VideoCard";
 import ChatPanel from "@/components/ChatPanel";
 import ProcessingOverlay from "@/components/ProcessingOverlay";
 import { getHistoryAction } from "@/app/actions";
-import { Clock, Video, PanelLeftClose, PanelLeftOpen } from "lucide-react";
+import { Clock, Video, PanelLeftClose, PanelLeftOpen, Plus } from "lucide-react";
 
 export default function SessionPage({ params }: { params: Promise<{ id: string }> }) {
   const resolvedParams = use(params);
@@ -112,7 +112,21 @@ export default function SessionPage({ params }: { params: Promise<{ id: string }
         }}
       >
         <div style={{ minWidth: '230px' }}>
-          <h2 style={styles.sidebarTitle}><Clock size={16} /> History</h2>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.5rem' }}>
+            <h2 style={{ ...styles.sidebarTitle, marginBottom: 0 }}><Clock size={16} /> History</h2>
+            <button 
+              onClick={() => router.push('/')}
+              style={{
+                display: 'flex', alignItems: 'center', gap: '0.4rem',
+                background: 'var(--accent-cyan)', color: 'black', 
+                border: 'none', padding: '0.4rem 0.8rem', borderRadius: '6px',
+                cursor: 'pointer', fontSize: '0.85rem', fontWeight: 600,
+                boxShadow: '0 2px 10px rgba(34, 211, 238, 0.2)'
+              }}
+            >
+              <Plus size={14} /> New Chat
+            </button>
+          </div>
           {history.length === 0 ? (
             <p style={styles.emptyHistory}>No previous sessions.</p>
           ) : (
@@ -159,7 +173,10 @@ export default function SessionPage({ params }: { params: Promise<{ id: string }
       </div>
 
       <div className="session-right glass-panel">
-        <ChatPanel sessionId={sessionId} />
+        <ChatPanel 
+          sessionId={sessionId} 
+          hasVideos={jobAStatus === "COMPLETED" || jobBStatus === "COMPLETED"} 
+        />
       </div>
     </div>
   );
