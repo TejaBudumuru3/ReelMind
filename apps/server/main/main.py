@@ -74,7 +74,16 @@ async def ingest_url(payload: IngestPayload):
                 where={ "session_id": payload.session_id}
             )
             label = chr(65 + count)
-
+            
+        # Do NOT delete jobs. Enforce max 2 active (non-failed) jobs per session.
+        active_count = await db.job.count(
+            where={
+                "session_id": payload.session_id,
+                "status": {"not": "FAILED"}
+            }
+        )
+        if active_count >= 2:
+            raise HTTPException(status_code=400, detail="This session already has 2 active videos. Please start a new session.")
 
         job = await db.job.create(
             data={

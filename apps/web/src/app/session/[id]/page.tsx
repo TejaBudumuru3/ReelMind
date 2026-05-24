@@ -6,6 +6,8 @@ import { ingestVideo } from "@/lib/api";
 import VideoCard, { VideoData } from "@/components/VideoCard";
 import ChatPanel from "@/components/ChatPanel";
 import ProcessingOverlay from "@/components/ProcessingOverlay";
+import { getHistoryAction } from "@/app/actions";
+import { Clock, Video, PanelLeftClose, PanelLeftOpen } from "lucide-react";
 
 export default function SessionPage({ params }: { params: Promise<{ id: string }> }) {
   const resolvedParams = use(params);
@@ -19,8 +21,13 @@ export default function SessionPage({ params }: { params: Promise<{ id: string }
   const [jobBStatus, setJobBStatus] = useState(jobB ? "PENDING" : "NONE");
   const [videoA, setVideoA] = useState<VideoData | null>(null);
   const [videoB, setVideoB] = useState<VideoData | null>(null);
+  const [jobAError, setJobAError] = useState<string | null>(null);
+  const [jobBError, setJobBError] = useState<string | null>(null);
+  const [history, setHistory] = useState<any[]>([]);
+  const [isSidebarOpen, setIsSidebarOpen] = useState(true);
 
   useEffect(() => {
+    getHistoryAction().then(data => setHistory(data)).catch(console.error);
     const pollJob = async (jobId: string, setStatus: (s: string) => void, setVideo: (v: VideoData) => void) => {
       try {
         const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000"}/job/${jobId}/status`);
@@ -72,10 +79,16 @@ export default function SessionPage({ params }: { params: Promise<{ id: string }
       const newQuery = new URLSearchParams(searchParams.toString());
       newQuery.set(jobKey, res.job_id);
       router.replace(`/session/${sessionId}?${newQuery.toString()}`);
-    } catch (e) {
+    } catch (e: any) {
       console.error("Retry failed:", e);
-      if (jobKey === "jobA") setJobAStatus("FAILED");
-      if (jobKey === "jobB") setJobBStatus("FAILED");
+      if (jobKey === "jobA") {
+        setJobAStatus("FAILED");
+        setJobAError(e.message);
+      }
+      if (jobKey === "jobB") {
+        setJobBStatus("FAILED");
+        setJobBError(e.message);
+      }
     }
   };
 
@@ -84,17 +97,68 @@ export default function SessionPage({ params }: { params: Promise<{ id: string }
     (jobBStatus !== "NONE" && !["COMPLETED", "FAILED"].includes(jobBStatus));
 
   return (
-    <div style={styles.layout}>
+    <div className="session-layout">
       {isProcessing && <ProcessingOverlay jobAStatus={jobAStatus} jobBStatus={jobBStatus} />}
       
-      <div style={styles.leftPane}>
-        <div style={styles.videoGrid}>
-          <VideoCard data={videoA || undefined} status={jobAStatus} onRetry={(newUrl) => handleRetry("jobA", newUrl)} />
-          <VideoCard data={videoB || undefined} status={jobBStatus} onRetry={(newUrl) => handleRetry("jobB", newUrl)} />
+      <div 
+        className="history-sidebar" 
+        style={{ 
+          width: isSidebarOpen ? '250px' : '0px', 
+          opacity: isSidebarOpen ? 1 : 0, 
+          transition: 'all 0.3s ease',
+          padding: isSidebarOpen ? undefined : 0,
+          border: 'none',
+          pointerEvents: isSidebarOpen ? 'auto' : 'none'
+        }}
+      >
+        <div style={{ minWidth: '230px' }}>
+          <h2 style={styles.sidebarTitle}><Clock size={16} /> History</h2>
+          {history.length === 0 ? (
+            <p style={styles.emptyHistory}>No previous sessions.</p>
+          ) : (
+            history.map(session => (
+              <div 
+                key={session.id} 
+                style={{
+                  ...styles.historyItem, 
+                  borderColor: session.id === sessionId ? 'var(--accent-cyan)' : 'var(--border-light)',
+                  background: session.id === sessionId ? 'rgba(34, 211, 238, 0.05)' : 'transparent'
+                }}
+                onClick={() => {
+                  let q = "";
+                  const sortedJobs = [...(session.jobs || [])].reverse();
+                  if (sortedJobs.length >= 2) q = `?jobA=${sortedJobs[0].id}&jobB=${sortedJobs[1].id}`;
+                  else if (sortedJobs.length === 1) q = `?jobA=${sortedJobs[0].id}`;
+                  router.push(`/session/${session.id}${q}`);
+                }}
+              >
+                <div style={styles.historyDate}>
+                  {new Date(session.created_at).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}
+                </div>
+                <div style={styles.historyMeta}>
+                  <Video size={12} /> {session.jobs?.length || 0} videos
+                </div>
+              </div>
+            ))
+          )}
         </div>
       </div>
 
-      <div style={styles.rightPane} className="glass-panel">
+      <div className="session-left">
+        <button 
+          onClick={() => setIsSidebarOpen(!isSidebarOpen)}
+          style={styles.toggleBtn}
+          title="Toggle History Sidebar"
+        >
+          {isSidebarOpen ? <PanelLeftClose size={18} /> : <PanelLeftOpen size={18} />}
+        </button>
+        <div style={styles.videoGrid}>
+          <VideoCard data={videoA || undefined} status={jobAStatus} onRetry={(newUrl) => handleRetry("jobA", newUrl)} errorMsg={jobAError} />
+          <VideoCard data={videoB || undefined} status={jobBStatus} onRetry={(newUrl) => handleRetry("jobB", newUrl)} errorMsg={jobBError} />
+        </div>
+      </div>
+
+      <div className="session-right glass-panel">
         <ChatPanel sessionId={sessionId} />
       </div>
     </div>
@@ -102,31 +166,55 @@ export default function SessionPage({ params }: { params: Promise<{ id: string }
 }
 
 const styles: Record<string, React.CSSProperties> = {
-  layout: {
+  toggleBtn: {
+    background: "transparent",
+    border: "none",
+    color: "var(--text-muted)",
+    cursor: "pointer",
     display: "flex",
-    height: "100vh",
-    width: "100vw",
-    padding: "1rem",
-    gap: "1rem",
-    position: "relative",
-  },
-  leftPane: {
-    width: "40%",
-    height: "100%",
-    display: "flex",
-    flexDirection: "column",
+    alignItems: "center",
+    padding: "0.25rem 0",
+    marginBottom: "0.75rem",
+    transition: "color 0.2s",
   },
   videoGrid: {
-    display: "grid",
-    gridTemplateRows: "1fr 1fr",
-    gap: "1rem",
-    height: "100%",
-  },
-  rightPane: {
-    width: "60%",
-    height: "100%",
     display: "flex",
     flexDirection: "column",
-    overflow: "hidden",
+    gap: "1rem",
+  },
+  sidebarTitle: {
+    fontSize: "1.1rem",
+    fontWeight: 600,
+    color: "var(--text-primary)",
+    display: "flex",
+    alignItems: "center",
+    gap: "0.5rem",
+    marginBottom: "0.5rem",
+  },
+  emptyHistory: {
+    color: "var(--text-muted)",
+    fontSize: "0.85rem",
+  },
+  historyItem: {
+    padding: "0.75rem",
+    border: "1px solid var(--border-light)",
+    borderRadius: "12px",
+    cursor: "pointer",
+    transition: "border-color 0.2s, background 0.2s",
+    display: "flex",
+    flexDirection: "column",
+    gap: "0.25rem",
+  },
+  historyDate: {
+    fontSize: "0.9rem",
+    color: "var(--text-primary)",
+    fontWeight: 500,
+  },
+  historyMeta: {
+    fontSize: "0.75rem",
+    color: "var(--text-muted)",
+    display: "flex",
+    alignItems: "center",
+    gap: "0.25rem",
   }
 };
