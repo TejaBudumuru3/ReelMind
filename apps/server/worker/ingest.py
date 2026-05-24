@@ -286,6 +286,7 @@ async def async_pipeline_link_to_text(job_id: str, url: str):
 
             yt_id = extract_youtube_id(url)
             use_yt_api = False
+            fallback_to_ytdlp = False
 
             if yt_id:
                 print(f"🟢 YouTube URL detected (id={yt_id}). Trying official API path...")
@@ -395,11 +396,8 @@ async def async_pipeline_link_to_text(job_id: str, url: str):
                     await db.execute_raw(f"SELECT pg_notify('job_updates', '{job_id}')")
                     print("🎉 YouTube pipeline completed successfully")
                 else:
-                    await db.job.update(
-                        where={"id": job_id},
-                        data={"status": 'FAILED', "error_message": "Could not extract transcript for this YouTube video", "updated_at": datetime.now()}
-                    )
-                    await db.execute_raw(f"SELECT pg_notify('job_updates', '{job_id}')")
+                    print("⚠️ youtube-transcript-api failed. Falling back to yt-dlp...")
+                    fallback_to_ytdlp = True
 
             elif yt_id and not use_yt_api:
                 # =====================================================
@@ -429,13 +427,10 @@ async def async_pipeline_link_to_text(job_id: str, url: str):
                     await db.execute_raw(f"SELECT pg_notify('job_updates', '{job_id}')")
                     print("🎉 Shorts-only pipeline completed (transcript only, no stats)")
                 else:
-                    await db.job.update(
-                        where={"id": job_id},
-                        data={"status": 'FAILED', "error_message": "This YouTube Short is not accessible via any API. It may be region-locked or have no captions.", "updated_at": datetime.now()}
-                    )
-                    await db.execute_raw(f"SELECT pg_notify('job_updates', '{job_id}')")
+                    print("⚠️ youtube-transcript-api failed for Short. Falling back to yt-dlp...")
+                    fallback_to_ytdlp = True
 
-            else:
+            if (not yt_id) or fallback_to_ytdlp:
                 # =====================================================
                 # NON-YOUTUBE PATH: Instagram, X, Facebook via yt-dlp
                 # =====================================================
