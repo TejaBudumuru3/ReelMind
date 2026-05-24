@@ -92,9 +92,7 @@ def extract_social_metadata(info: dict) -> dict:
 import base64
 import os
 import tempfile
-import requests
-from http.cookiejar import MozillaCookieJar
-from worker.youtube import yt_client
+from worker.youtube import yt_client, fetch_youtube_transcript
 
 _COOKIE_FILE_PATH = None
 
@@ -264,55 +262,7 @@ def get_transcription_from_groq(info: dict) -> str | None:
         return None
 
 
-async def _fetch_youtube_transcript(yt_id: str) -> str | None:
-    """Fetch transcript using youtube-transcript-api. No yt-dlp involved."""
-    try:
-        cookie_path = get_cookies_file_path()
-        client = None
-        
-        if cookie_path:
-            session = requests.Session()
-            cookie_jar = MozillaCookieJar(cookie_path)
-            cookie_jar.load(ignore_discard=True, ignore_expires=True)
-            session.cookies.update(cookie_jar)
-            client = YouTubeTranscriptApi(http_client=session)
-            print("🍪 Using authenticated youtube-transcript-api client")
-        else:
-            client = YouTubeTranscriptApi()
-            
-        transcript_list = client.list(video_id=yt_id)
-        transcripts_iter = list(transcript_list)
-        if not transcripts_iter:
-            raise Exception("No transcripts available")
-        
-        first_transcript = transcripts_iter[0]
-        try:
-            transcripts = transcript_list.find_transcript(['en', 'en-US', 'en-CA', 'en-GB', 'en-IN'])
-            raw_text = " ".join([item.text for item in transcripts.fetch()])
-            print("✅ English transcript fetched directly.")
-            return raw_text
-        except:
-            pass
-        
-        try:
-            translated = first_transcript.translate('en')
-            raw_text = " ".join([item.text for item in translated.fetch()])
-            print("✅ Translated to English via YouTube.")
-            return raw_text
-        except:
-            pass
-        
-        # Last resort: fetch raw and translate with Groq
-        raw_text = " ".join([item.text for item in first_transcript.fetch()])
-        translated_via_groq = get_translation_with_groq(raw_text)
-        if translated_via_groq:
-            print("✅ Translated via Groq LLM.")
-            return translated_via_groq
-        
-        return None
-    except Exception as e:
-        print(f"❌ youtube-transcript-api failed: {e}")
-        return None
+
 
 
 async def async_pipeline_link_to_text(job_id: str, url: str):
@@ -433,7 +383,8 @@ async def async_pipeline_link_to_text(job_id: str, url: str):
 
                 # Get transcript via youtube-transcript-api
                 print(f"📝 Fetching transcript for {yt_id}...")
-                final_transcript = await _fetch_youtube_transcript(yt_id)
+                cookie_path = get_cookies_file_path()
+                final_transcript = await fetch_youtube_transcript(yt_id, cookie_path)
 
                 if final_transcript:
                     await embedd_and_store(final_transcript, job_id, job.session_id)
@@ -466,7 +417,8 @@ async def async_pipeline_link_to_text(job_id: str, url: str):
                     }
                 )
 
-                final_transcript = await _fetch_youtube_transcript(yt_id)
+                cookie_path = get_cookies_file_path()
+                final_transcript = await fetch_youtube_transcript(yt_id, cookie_path)
 
                 if final_transcript:
                     await embedd_and_store(final_transcript, job_id, job.session_id)

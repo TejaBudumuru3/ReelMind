@@ -75,11 +75,17 @@ async def ingest_url(payload: IngestPayload):
             )
             label = chr(65 + count)
             
-        # Do NOT delete jobs. Enforce max 2 active (non-failed) jobs per session.
-        active_count = await db.job.count(
+        # Clean up failed jobs to accommodate retries and maintain max 2 jobs per session
+        await db.job.delete_many(
             where={
                 "session_id": payload.session_id,
-                "status": {"not": "FAILED"}
+                "status": "FAILED"
+            }
+        )
+        
+        active_count = await db.job.count(
+            where={
+                "session_id": payload.session_id
             }
         )
         if active_count >= 2:

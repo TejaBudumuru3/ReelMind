@@ -10,3 +10,4 @@ apps/server/rag/__pycache__/
 apps/web/.next/
 apps/web/.next/cache/.rscinfo
 apps/web/node_modules/
+files/

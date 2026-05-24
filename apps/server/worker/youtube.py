@@ -13,6 +13,8 @@ from youtube_transcript_api import YouTubeTranscriptApi
 from prisma_db import Prisma
 from dotenv import load_dotenv
 from groq import Groq
+import requests
+from http.cookiejar import MozillaCookieJar
 
 load_dotenv()
 
@@ -52,7 +54,54 @@ def get_translation_with_groq(transcript: str) -> str| None:
 
     return response.choices[0].message.content
 
-
+async def fetch_youtube_transcript(yt_id: str, cookie_path: str | None) -> str | None:
+    """Fetch transcript using youtube-transcript-api with optional cookie auth. No yt-dlp involved."""
+    try:
+        client = None
+        
+        if cookie_path:
+            session = requests.Session()
+            cookie_jar = MozillaCookieJar(cookie_path)
+            cookie_jar.load(ignore_discard=True, ignore_expires=True)
+            session.cookies.update(cookie_jar)
+            client = YouTubeTranscriptApi(http_client=session)
+            print("🍪 Using authenticated youtube-transcript-api client")
+        else:
+            client = YouTubeTranscriptApi()
+            
+        transcript_list = client.list(video_id=yt_id)
+        transcripts_iter = list(transcript_list)
+        if not transcripts_iter:
+            raise Exception("No transcripts available")
+        
+        first_transcript = transcripts_iter[0]
+        try:
+            transcripts = transcript_list.find_transcript(['en', 'en-US', 'en-CA', 'en-GB', 'en-IN'])
+            raw_text = " ".join([item.text for item in transcripts.fetch()])
+            print("✅ English transcript fetched directly.")
+            return raw_text
+        except:
+            pass
+        
+        try:
+            translated = first_transcript.translate('en')
+            raw_text = " ".join([item.text for item in translated.fetch()])
+            print("✅ Translated to English via YouTube.")
+            return raw_text
+        except:
+            pass
+        
+        # Last resort: fetch raw and translate with Groq
+        raw_text = " ".join([item.text for item in first_transcript.fetch()])
+        translated_via_groq = get_translation_with_groq(raw_text)
+        if translated_via_groq:
+            print("✅ Translated via Groq LLM.")
+            return translated_via_groq
+        
+        return None
+    except Exception as e:
+        print(f"❌ youtube-transcript-api failed: {e}")
+        return None
 
 def extract_youtube_id(url: str) -> str | None:
     """Safely extracts the video ID from standard, mobile, shorts, and youtu.be YouTube URLs."""
