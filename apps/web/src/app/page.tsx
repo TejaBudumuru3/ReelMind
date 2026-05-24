@@ -57,6 +57,14 @@ export default function Home() {
         style={styles.container}
         className="glass-panel"
       >
+        <div style={{ position: "absolute", top: "1rem", right: "1rem" }}>
+          <button 
+            onClick={() => router.push('/history')}
+            style={styles.historyBtn}
+          >
+            View History
+          </button>
+        </div>
         <div style={styles.header}>
           <div style={styles.iconWrapper}>
             <Sparkles size={32} color="var(--accent-cyan)" />
@@ -206,4 +214,15 @@ const styles: Record<string, React.CSSProperties> = {
     fontSize: "0.9rem",
     textAlign: "center",
   },
+  historyBtn: {
+    background: "rgba(255, 255, 255, 0.1)",
+    border: "1px solid rgba(255, 255, 255, 0.2)",
+    borderRadius: "20px",
+    padding: "0.5rem 1rem",
+    color: "var(--text-primary)",
+    fontSize: "0.85rem",
+    fontWeight: 500,
+    cursor: "pointer",
+    transition: "background 0.2s",
+  }
 };

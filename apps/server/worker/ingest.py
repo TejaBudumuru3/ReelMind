@@ -100,7 +100,12 @@ def get_secure_ydl_opts():
         'format': 'worstaudio[protocol!*=m3u8][protocol!=dash]/bestaudio[protocol!*=m3u8][protocol!=dash]/worst/bestaudio/best',
         'quiet': True,
         'no_warnings': True,
-        'skip_download': True
+        'skip_download': True,
+        'extractor_args': {
+            'youtube': {
+                'player_client': ['android', 'ios']
+            }
+        }
     }
     
     if not b64_cookies:

@@ -18,7 +18,7 @@ export interface VideoData {
 
 import { useState } from "react";
 
-export default function VideoCard({ data, status, onRetry }: { data?: VideoData, status?: string, onRetry?: (url: string) => void }) {
+export default function VideoCard({ data, status, onRetry, errorMsg }: { data?: VideoData, status?: string, onRetry?: (url: string) => void, errorMsg?: string | null }) {
   const [newUrl, setNewUrl] = useState("");
 
   if (status === "NONE") {
@@ -52,29 +52,44 @@ export default function VideoCard({ data, status, onRetry }: { data?: VideoData,
   }
 
   if (status === "FAILED") {
+    const isLimitError = errorMsg?.includes("session already has 2 active videos");
+
     return (
       <div className="glass-panel" style={styles.skeleton}>
         <div style={{textAlign: "center", padding: "20px", width: "100%"}}>
-          <h3 style={{color: "#ef4444", marginBottom: "10px"}}>Analysis Failed</h3>
+          <h3 style={{color: "#ef4444", marginBottom: "10px"}}>
+            {isLimitError ? "Session Limit Reached" : "Analysis Failed"}
+          </h3>
           <p style={{fontSize: "0.85rem", color: "var(--text-muted)", marginBottom: "15px"}}>
-            The video format or platform is not supported. Please try another link.
+            {errorMsg || "The video format or platform is not supported. Please try another link."}
           </p>
           <div style={{display: "flex", flexDirection: "column", gap: "10px", marginTop: "15px", padding: "0 10%"}}>
-            <input 
-              type="url" 
-              placeholder="Paste new URL here..." 
-              value={newUrl} 
-              onChange={e => setNewUrl(e.target.value)}
-              style={{width: "100%", padding: "10px", borderRadius: "8px", background: "rgba(0,0,0,0.4)", border: "1px solid var(--border-light)", color: "#fff", outline: "none"}}
-            />
-            <button 
-              onClick={() => {
-                if (newUrl && onRetry) onRetry(newUrl);
-              }}
-              style={{padding: "10px", background: "var(--btn-bg)", borderRadius: "8px", color: "#fff", border: "none", cursor: "pointer", fontWeight: "bold"}}
-            >
-              Analyze New Video
-            </button>
+            {!isLimitError ? (
+              <>
+                <input 
+                  type="url" 
+                  placeholder="Paste new URL here..." 
+                  value={newUrl} 
+                  onChange={e => setNewUrl(e.target.value)}
+                  style={{width: "100%", padding: "10px", borderRadius: "8px", background: "rgba(0,0,0,0.4)", border: "1px solid var(--border-light)", color: "#fff", outline: "none"}}
+                />
+                <button 
+                  onClick={() => {
+                    if (newUrl && onRetry) onRetry(newUrl);
+                  }}
+                  style={{padding: "10px", background: "var(--btn-bg)", borderRadius: "8px", color: "#fff", border: "none", cursor: "pointer", fontWeight: "bold"}}
+                >
+                  Analyze New Video
+                </button>
+              </>
+            ) : (
+              <a 
+                href="/"
+                style={{padding: "10px", background: "var(--btn-bg)", borderRadius: "8px", color: "#fff", border: "none", cursor: "pointer", fontWeight: "bold", textDecoration: "none", display: "inline-block"}}
+              >
+                Start New Session
+              </a>
+            )}
           </div>
         </div>
       </div>

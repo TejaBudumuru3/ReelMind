@@ -29,3 +29,32 @@ export async function createSessionAction() {
 
   return session.id;
 }
+
+export async function getHistoryAction() {
+  const cookieStore = await cookies();
+  const userId = cookieStore.get("userId")?.value;
+
+  if (!userId) {
+    return [];
+  }
+
+  const sessions = await prisma.session.findMany({
+    where: { user_id: userId },
+    orderBy: { created_at: "desc" },
+    include: {
+      jobs: {
+        select: {
+          id: true,
+          label: true,
+          title: true,
+          thumbnail_url: true,
+          status: true,
+          platform: true,
+          views: true,
+        }
+      }
+    }
+  });
+
+  return sessions;
+}
