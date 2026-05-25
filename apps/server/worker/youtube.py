@@ -10,6 +10,7 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from googleapiclient.discovery import build
 from googleapiclient.errors import HttpError
 from youtube_transcript_api import YouTubeTranscriptApi
+from youtube_transcript_api.proxies import GenericProxyConfig
 from prisma_db import Prisma
 from dotenv import load_dotenv
 from groq import Groq
@@ -101,6 +102,62 @@ async def fetch_youtube_transcript(yt_id: str, cookie_path: str | None) -> str |
         return None
     except Exception as e:
         print(f"❌ youtube-transcript-api failed: {e}")
+        return None
+
+async def fetch_transcript_via_proxy(yt_id: str) -> str | None:
+    """Fetch transcript using youtube-transcript-api routed through a residential proxy.
+    YouTube blocks ALL cloud IPs (GCP, AWS, Cloudflare). Only residential proxies work.
+    Set RESIDENTIAL_PROXY_URL env var e.g. http://user:pass@p.webshare.io:80
+    """
+    proxy_url = os.getenv("RESIDENTIAL_PROXY_URL")
+    if not proxy_url:
+        print("⚠️ RESIDENTIAL_PROXY_URL not set, skipping proxy fallback")
+        return None
+    
+    try:
+        print(f"🌐 Fetching transcript via residential proxy for {yt_id}...")
+        client = YouTubeTranscriptApi(
+            proxy_config=GenericProxyConfig(
+                http_url=proxy_url,
+                https_url=proxy_url,
+            )
+        )
+        
+        transcript_list = client.list(video_id=yt_id)
+        transcripts_iter = list(transcript_list)
+        if not transcripts_iter:
+            raise Exception("No transcripts available via proxy")
+        
+        first_transcript = transcripts_iter[0]
+        
+        # Try direct English
+        try:
+            transcripts = transcript_list.find_transcript(['en', 'en-US', 'en-CA', 'en-GB', 'en-IN'])
+            raw_text = " ".join([item.text for item in transcripts.fetch()])
+            print("✅ English transcript fetched via proxy.")
+            return raw_text
+        except:
+            pass
+        
+        # Try YouTube translation
+        try:
+            translated = first_transcript.translate('en')
+            raw_text = " ".join([item.text for item in translated.fetch()])
+            print("✅ Translated to English via proxy + YouTube.")
+            return raw_text
+        except:
+            pass
+        
+        # Last resort: raw + Groq translation
+        raw_text = " ".join([item.text for item in first_transcript.fetch()])
+        translated_via_groq = get_translation_with_groq(raw_text)
+        if translated_via_groq:
+            print("✅ Translated via proxy + Groq LLM.")
+            return translated_via_groq
+        
+        return None
+    except Exception as e:
+        print(f"❌ Residential proxy transcript fetch failed: {e}")
         return None
 
 def extract_youtube_id(url: str) -> str | None:
