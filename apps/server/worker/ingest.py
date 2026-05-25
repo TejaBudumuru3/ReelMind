@@ -3,6 +3,8 @@ import yt_dlp
 from decimal import Decimal
 import os
 import re
+import base64
+import tempfile
 import httpx
 import uuid
 from groq import Groq
@@ -12,7 +14,7 @@ import asyncio
 from dotenv import load_dotenv
 from googleapiclient.discovery import build
 from worker.embeddings import embedd_and_store
-from worker.youtube import extract_youtube_id, get_translation_with_groq, yt_client
+from worker.youtube import extract_youtube_id, get_translation_with_groq, yt_client, get_youtube_metadata, fetch_youtube_transcript
 
 
 
@@ -89,10 +91,7 @@ def extract_social_metadata(info: dict) -> dict:
         print(f"Metadata extraction failed: {e}")
         return {"views": 0, "likes": 0, "comments": 0, "engagement_rate": Decimal("0.00")}
 
-import base64
-import os
-import tempfile
-from worker.youtube import yt_client, fetch_youtube_transcript
+
 
 _COOKIE_FILE_PATH = None
 
