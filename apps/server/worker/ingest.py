@@ -150,7 +150,7 @@ def get_secure_ydl_opts():
         'skip_download': True,
         'extractor_args': {
             'youtube': {
-                'player_client': ['mweb'],
+                'player_client': ['android', 'ios'],
                 'player_skip': ['webpage', 'configs']
             }
         },
@@ -163,6 +163,7 @@ def get_secure_ydl_opts():
     cookie_path = get_cookies_file_path()
     if cookie_path:
         base_options['cookiefile'] = cookie_path
+        print("🍪 Cookie file loaded from env")
     else:
         print("⚠️ WARNING: No cookies found! yt-dlp will run without authentication.")
         
@@ -290,20 +291,12 @@ async def async_pipeline_link_to_text(job_id: str, url: str):
 
             if yt_id:
                 print(f"🟢 YouTube URL detected (id={yt_id}). Trying official API path...")
-                try:
-                    youtube = build('youtube', 'v3', developerKey=YOUTUBE_API_KEY)
-                    response = youtube.videos().list(
-                        part="statistics,snippet,contentDetails",
-                        id=yt_id
-                    ).execute()
-                    if response['items']:
-                        use_yt_api = True
-                    else:
-                        print(f"⚠️ Data API returned no items for {yt_id} (Shorts-only video).")
-                except Exception as api_err:
-                    print(f"⚠️ YouTube Data API failed: {api_err}")
+                response = get_youtube_metadata(yt_id)
 
-            if yt_id and use_yt_api:
+                if not response:
+                    print(f"⚠️ Data API returned no items for {yt_id} (Shorts-only video).")
+
+            if yt_id and response:
                 # =====================================================
                 # YOUTUBE FULL PATH: Data API + transcript-api
                 # =====================================================
@@ -399,7 +392,7 @@ async def async_pipeline_link_to_text(job_id: str, url: str):
                     print("⚠️ youtube-transcript-api failed. Falling back to yt-dlp...")
                     fallback_to_ytdlp = True
 
-            elif yt_id and not use_yt_api:
+            elif yt_id and not response:
                 # =====================================================
                 # YOUTUBE SHORTS-ONLY PATH: No metadata, transcript only
                 # =====================================================

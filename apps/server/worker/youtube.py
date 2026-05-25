@@ -122,9 +122,10 @@ def extract_youtube_id(url: str) -> str | None:
 def get_youtube_metadata(video_id: str) -> dict:
     """Hits the official Google API. 100% reliable. 0% blocked."""
     try:
+        response = None
         youtube = build('youtube', 'v3', developerKey=YOUTUBE_API_KEY)
         request = youtube.videos().list(
-            part="statistics",
+            part="statistics,snippet,contentDetails",
             id=video_id
         )
         response = request.execute()
@@ -132,22 +133,7 @@ def get_youtube_metadata(video_id: str) -> dict:
         if not response['items']:
             raise ValueError("Video not found or is private.")
             
-        stats = response['items'][0]['statistics']
-        views = int(stats.get('viewCount', 0))
-        likes = int(stats.get('likeCount', 0))
-        comments = int(stats.get('commentCount', 0))
-        
-        engagement_rate = 0.00
-        if views > 0:
-            engagement = ((likes + comments) / views) * 100
-            engagement_rate = round(engagement, 2)
-            
-        return {
-            "views": views,
-            "likes": likes,
-            "comments": comments,
-            "engagement_rate": Decimal(str(engagement_rate))
-        }
+        return response
     except HttpError as e:
         print(f"Google API Error: {e}")
         return {"views": 0, "likes": 0, "comments": 0, "engagement_rate": Decimal("0.00")}
