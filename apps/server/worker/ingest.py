@@ -150,6 +150,10 @@ def get_secure_ydl_opts():
         'extractor_args': {
             'youtube': {
                 'player_client': ['android', 'ios']
+            },
+        'http_headers': {
+                'User-Agent': 'Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.6422.113 Mobile Safari/537.36',
+                'Accept-Language': 'en-US,en;q=0.9',
             }
         }
     }
