@@ -14,7 +14,7 @@ import asyncio
 from dotenv import load_dotenv
 from googleapiclient.discovery import build
 from worker.embeddings import embedd_and_store
-from worker.youtube import extract_youtube_id, get_translation_with_groq, yt_client, get_youtube_metadata, fetch_youtube_transcript
+from worker.youtube import extract_youtube_id, get_translation_with_groq, yt_client, get_youtube_metadata, fetch_youtube_transcript, fetch_transcript_via_proxy
 
 
 
@@ -160,6 +160,12 @@ def get_secure_ydl_opts():
         print("🍪 Cookie file loaded from env")
     else:
         print("⚠️ WARNING: No cookies found! yt-dlp will run without authentication.")
+        
+    # Set proxy for yt-dlp if residential proxy URL is available
+    proxy_url = os.getenv("RESIDENTIAL_PROXY_URL")
+    if proxy_url:
+        base_options['proxy'] = proxy_url
+        print("🌐 Routing yt-dlp through residential proxy")
         
     return base_options
 
@@ -383,8 +389,19 @@ async def async_pipeline_link_to_text(job_id: str, url: str):
                     await db.execute_raw(f"SELECT pg_notify('job_updates', '{job_id}')")
                     print("🎉 YouTube pipeline completed successfully")
                 else:
-                    print("⚠️ youtube-transcript-api failed. Falling back to yt-dlp...")
-                    fallback_to_ytdlp = True
+                    print("⚠️ youtube-transcript-api failed. Trying residential proxy...")
+                    final_transcript = await fetch_transcript_via_proxy(yt_id)
+                    if final_transcript:
+                        await embedd_and_store(final_transcript, job_id, job.session_id)
+                        await db.job.update(
+                            where={"id": job_id},
+                            data={"status": 'COMPLETED', "updated_at": datetime.now(), "transcript": final_transcript}
+                        )
+                        await db.execute_raw(f"SELECT pg_notify('job_updates', '{job_id}')")
+                        print("🎉 YouTube pipeline completed via proxy")
+                    else:
+                        print("⚠️ Proxy also failed. Falling back to yt-dlp...")
+                        fallback_to_ytdlp = True
 
             elif yt_id and not response:
                 # =====================================================
@@ -414,8 +431,19 @@ async def async_pipeline_link_to_text(job_id: str, url: str):
                     await db.execute_raw(f"SELECT pg_notify('job_updates', '{job_id}')")
                     print("🎉 Shorts-only pipeline completed (transcript only, no stats)")
                 else:
-                    print("⚠️ youtube-transcript-api failed for Short. Falling back to yt-dlp...")
-                    fallback_to_ytdlp = True
+                    print("⚠️ youtube-transcript-api failed for Short. Trying residential proxy...")
+                    final_transcript = await fetch_transcript_via_proxy(yt_id)
+                    if final_transcript:
+                        await embedd_and_store(final_transcript, job_id, job.session_id)
+                        await db.job.update(
+                            where={"id": job_id},
+                            data={"status": 'COMPLETED', "updated_at": datetime.now(), "transcript": final_transcript}
+                        )
+                        await db.execute_raw(f"SELECT pg_notify('job_updates', '{job_id}')")
+                        print("🎉 Shorts pipeline completed via proxy")
+                    else:
+                        print("⚠️ Proxy also failed for Short. Falling back to yt-dlp...")
+                        fallback_to_ytdlp = True
 
             if (not yt_id) or fallback_to_ytdlp:
                 # =====================================================
