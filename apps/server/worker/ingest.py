@@ -14,7 +14,7 @@ import asyncio
 from dotenv import load_dotenv
 from googleapiclient.discovery import build
 from worker.embeddings import embedd_and_store
-from worker.youtube import extract_youtube_id, get_translation_with_groq, yt_client, get_youtube_metadata, fetch_youtube_transcript, fetch_transcript_via_proxy, fetch_transcript_via_innertube
+from worker.youtube import extract_youtube_id, get_translation_with_groq, yt_client, get_youtube_metadata, fetch_youtube_transcript, fetch_transcript_via_proxy, fetch_transcript_via_innertube, fetch_transcript_via_ytdlp, fetch_transcript_via_public_apis
 
 
 
@@ -415,8 +415,30 @@ async def async_pipeline_link_to_text(job_id: str, url: str):
                             await db.execute_raw(f"SELECT pg_notify('job_updates', '{job_id}')")
                             print("🎉 YouTube pipeline completed via innertube")
                         else:
-                            print("⚠️ Innertube also failed. Falling back to yt-dlp...")
-                            fallback_to_ytdlp = True
+                            print("⚠️ Innertube also failed. Trying yt-dlp captions extraction...")
+                            final_transcript = await fetch_transcript_via_ytdlp(yt_id, cookie_path)
+                            if final_transcript:
+                                await embedd_and_store(final_transcript, job_id, job.session_id)
+                                await db.job.update(
+                                    where={"id": job_id},
+                                    data={"status": 'COMPLETED', "updated_at": datetime.now(), "transcript": final_transcript}
+                                )
+                                await db.execute_raw(f"SELECT pg_notify('job_updates', '{job_id}')")
+                                print("🎉 YouTube pipeline completed via yt-dlp captions")
+                            else:
+                                print("⚠️ yt-dlp captions also failed. Trying public APIs (Invidious)...")
+                                final_transcript = await fetch_transcript_via_public_apis(yt_id)
+                                if final_transcript:
+                                    await embedd_and_store(final_transcript, job_id, job.session_id)
+                                    await db.job.update(
+                                        where={"id": job_id},
+                                        data={"status": 'COMPLETED', "updated_at": datetime.now(), "transcript": final_transcript}
+                                    )
+                                    await db.execute_raw(f"SELECT pg_notify('job_updates', '{job_id}')")
+                                    print("🎉 YouTube pipeline completed via public APIs")
+                                else:
+                                    print("⚠️ Public APIs also failed. Falling back to yt-dlp audio download + Whisper...")
+                                    fallback_to_ytdlp = True
 
             elif yt_id and not response:
                 # =====================================================
@@ -468,8 +490,30 @@ async def async_pipeline_link_to_text(job_id: str, url: str):
                             await db.execute_raw(f"SELECT pg_notify('job_updates', '{job_id}')")
                             print("🎉 Shorts pipeline completed via innertube")
                         else:
-                            print("⚠️ Innertube also failed for Short. Falling back to yt-dlp...")
-                            fallback_to_ytdlp = True
+                            print("⚠️ Innertube also failed for Short. Trying yt-dlp captions extraction...")
+                            final_transcript = await fetch_transcript_via_ytdlp(yt_id, cookie_path)
+                            if final_transcript:
+                                await embedd_and_store(final_transcript, job_id, job.session_id)
+                                await db.job.update(
+                                    where={"id": job_id},
+                                    data={"status": 'COMPLETED', "updated_at": datetime.now(), "transcript": final_transcript}
+                                )
+                                await db.execute_raw(f"SELECT pg_notify('job_updates', '{job_id}')")
+                                print("🎉 Shorts pipeline completed via yt-dlp captions")
+                            else:
+                                print("⚠️ yt-dlp captions also failed for Short. Trying public APIs (Invidious)...")
+                                final_transcript = await fetch_transcript_via_public_apis(yt_id)
+                                if final_transcript:
+                                    await embedd_and_store(final_transcript, job_id, job.session_id)
+                                    await db.job.update(
+                                        where={"id": job_id},
+                                        data={"status": 'COMPLETED', "updated_at": datetime.now(), "transcript": final_transcript}
+                                    )
+                                    await db.execute_raw(f"SELECT pg_notify('job_updates', '{job_id}')")
+                                    print("🎉 Shorts pipeline completed via public APIs")
+                                else:
+                                    print("⚠️ Public APIs also failed for Short. Falling back to yt-dlp audio download + Whisper...")
+                                    fallback_to_ytdlp = True
 
             if (not yt_id) or fallback_to_ytdlp:
                 # =====================================================
@@ -477,9 +521,24 @@ async def async_pipeline_link_to_text(job_id: str, url: str):
                 # =====================================================
                 print(f"🔵 Using yt-dlp path for: {url}")
                 ydl_options = get_secure_ydl_opts()
-                
-                with yt_dlp.YoutubeDL(ydl_options) as ydl:
-                    info = ydl.extract_info(url=url, download=False)
+                info = None
+                try:
+                    with yt_dlp.YoutubeDL(ydl_options) as ydl:
+                        info = ydl.extract_info(url=url, download=False)
+                except Exception as e:
+                    print(f"⚠️ Primary yt-dlp metadata extraction failed: {e}")
+                    if 'proxy' in ydl_options:
+                        print("🔄 Retrying yt-dlp metadata extraction WITHOUT proxy...")
+                        fallback_options = ydl_options.copy()
+                        fallback_options.pop('proxy', None)
+                        try:
+                            with yt_dlp.YoutubeDL(fallback_options) as ydl:
+                                info = ydl.extract_info(url=url, download=False)
+                        except Exception as fe:
+                            print(f"❌ Fallback yt-dlp metadata extraction also failed: {fe}")
+                            raise fe
+                    else:
+                        raise e
                 
                 under_limit = get_audio_limit(info)
                 if under_limit.get('limit') == False:

@@ -374,6 +374,232 @@ async def fetch_transcript_via_innertube(yt_id: str, cookie_path: str | None = N
     print("❌ All Innertube fetch configs failed.")
     return None
 
+async def fetch_transcript_via_ytdlp(yt_id: str, cookie_path: str | None = None) -> str | None:
+    """
+    Fetch subtitles/transcripts using yt-dlp by extracting caption tracks
+    with the embedded player clients, then downloading the signed timedtext URL.
+    Attempts 4 configurations sequentially:
+    1. Cookies + Proxy (if both available)
+    2. Cookies + No Proxy
+    3. No Cookies + Proxy (if proxy available)
+    4. No Cookies + No Proxy
+    """
+    import yt_dlp
+    import requests
+    import html as _html
+    from xml.etree import ElementTree
+    
+    proxy_url = os.getenv("RESIDENTIAL_PROXY_URL")
+    url = f"https://www.youtube.com/watch?v={yt_id}"
+    
+    # 4 combinations of cookies/proxy
+    configs = []
+    if cookie_path and os.path.exists(cookie_path):
+        if proxy_url:
+            configs.append({"use_cookies": True, "use_proxy": True})
+        configs.append({"use_cookies": True, "use_proxy": False})
+    if proxy_url:
+        configs.append({"use_cookies": False, "use_proxy": True})
+    configs.append({"use_cookies": False, "use_proxy": False})
+    
+    for config in configs:
+        use_cookies = config["use_cookies"]
+        use_proxy = config["use_proxy"]
+        print(f"🎬 yt-dlp Captions: Trying fetch (cookies={use_cookies}, proxy={use_proxy})...")
+        
+        ydl_opts = {
+            'quiet': True,
+            'no_warnings': True,
+            'skip_download': True,
+            'extractor_args': {
+                'youtube': {
+                    'player_client': ['android_embed', 'ios_embed', 'android_sdkless', 'tv_embedded']
+                }
+            }
+        }
+        
+        if use_cookies and cookie_path:
+            ydl_opts['cookiefile'] = cookie_path
+        if use_proxy and proxy_url:
+            ydl_opts['proxy'] = proxy_url
+            
+        try:
+            loop = asyncio.get_event_loop()
+            def extract():
+                with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                    return ydl.extract_info(url, download=False)
+            
+            info = await loop.run_in_executor(None, extract)
+            auto_subs = info.get('automatic_captions', {})
+            subs = info.get('subtitles', {})
+            
+            # Find an English track in auto_subs or subs
+            tracks = None
+            for sub_dict in [subs, auto_subs]:
+                for lang_key in ['en', 'en-US', 'en-CA', 'en-GB', 'en-IN']:
+                    if lang_key in sub_dict and sub_dict[lang_key]:
+                        tracks = sub_dict[lang_key]
+                        break
+                if tracks:
+                    break
+                    
+            if not tracks:
+                for sub_dict in [subs, auto_subs]:
+                    for lang, t_list in sub_dict.items():
+                        if t_list:
+                            tracks = t_list
+                            print(f"  🌐 No English track found. Using '{lang}' language track.")
+                            break
+                    if tracks:
+                        break
+                        
+            if not tracks:
+                print("  ⚠️ No subtitle/caption tracks found via yt-dlp")
+                continue
+                
+            # Prefer JSON3, then SRV1, then VTT
+            track = next((t for t in tracks if t.get('ext') == 'json3'), None)
+            if not track:
+                track = next((t for t in tracks if t.get('ext') == 'srv1'), None)
+            if not track:
+                track = tracks[0]
+                
+            track_url = track.get('url')
+            if not track_url:
+                print("  ⚠️ Track has no URL")
+                continue
+                
+            session = requests.Session()
+            if use_proxy and proxy_url:
+                session.proxies = {"http": proxy_url, "https": proxy_url}
+            
+            if use_cookies and cookie_path:
+                cookie_jar = MozillaCookieJar(cookie_path)
+                cookie_jar.load(ignore_discard=True, ignore_expires=True)
+                session.cookies.update(cookie_jar)
+                
+            sub_res = session.get(track_url, timeout=10)
+            if sub_res.status_code != 200:
+                print(f"  ⚠️ Caption track request failed with status {sub_res.status_code}")
+                continue
+                
+            ext = track.get('ext', '')
+            raw_text = ""
+            if ext == 'json3':
+                try:
+                    events = sub_res.json().get('events', [])
+                    raw_text = ' '.join([seg.get('utf8').strip() for ev in events for seg in ev.get('segs', []) if seg.get('utf8')])
+                except Exception as je:
+                    print(f"  ⚠️ Failed to parse JSON3: {je}")
+            elif ext == 'srv1':
+                try:
+                    root = ElementTree.fromstring(sub_res.text)
+                    raw_text = ' '.join([_html.unescape(t.text.strip()) for t in root.findall('.//text') if t.text])
+                except Exception as xe:
+                    print(f"  ⚠️ Failed to parse SRV1 XML: {xe}")
+            else:
+                import re as _re
+                clean = _re.sub(r'WEBVTT|Kind:.*|Language:.*', '', sub_res.text)
+                clean = _re.sub(r'\d\d:\d\d:\d\d\.\d\d\d --> \d\d:\d\d:\d\d\.\d\d\d', '', clean)
+                clean = _re.sub(r'<[^>]+>', '', clean)
+                lines = [line.strip() for line in clean.split('\n') if line.strip()]
+                seen = []
+                for line in lines:
+                    if not seen or seen[-1] != line:
+                        seen.append(line)
+                raw_text = ' '.join(seen)
+                    
+            if raw_text and len(raw_text.strip()) > 50:
+                print(f"✅ Subtitles extracted successfully via yt-dlp (cookies={use_cookies}, proxy={use_proxy}, format={ext}).")
+                if not track.get('name', '').lower().startswith('english') and not track.get('label', '').lower().startswith('english'):
+                    print("  🌐 Translating non-English subtitles via Groq...")
+                    translated = get_translation_with_groq(raw_text)
+                    if translated:
+                        return translated
+                return raw_text
+                
+        except Exception as e:
+            print(f"  ❌ yt-dlp Caption configuration failed: {e}")
+            
+    return None
+
+async def fetch_transcript_via_public_apis(yt_id: str) -> str | None:
+    """
+    Query public Invidious instances to fetch captions for a video.
+    This serves as a last-resort lightweight bypass fallback.
+    """
+    import requests
+    import html as _html
+    from xml.etree import ElementTree
+    
+    print(f"🌐 Public APIs: Trying Invidious instances to fetch captions for {yt_id}...")
+    try:
+        res = requests.get('https://api.invidious.io/instances.json', timeout=8)
+        if res.status_code != 200:
+            return None
+        instances = res.json()
+        valid_instances = [data.get('uri') for name, data in instances if data.get('type') == 'https' and data.get('uri')]
+    except Exception as e:
+        print(f"  ⚠️ Failed to fetch Invidious instances list: {e}")
+        return None
+        
+    for base_url in valid_instances[:10]:
+        try:
+            url = f"{base_url}/api/v1/captions/{yt_id}"
+            c_res = requests.get(url, timeout=5)
+            if c_res.status_code == 200:
+                tracks = c_res.json().get('captions', [])
+                if not tracks:
+                    continue
+                track = None
+                for t in tracks:
+                    lang = t.get('languageCode', '')
+                    if lang.startswith('en'):
+                        track = t
+                        break
+                if not track:
+                    track = tracks[0]
+                    
+                track_url = track.get('url')
+                if not track_url:
+                    continue
+                if not track_url.startswith('http'):
+                    track_url = base_url + track_url
+                    
+                sub_res = requests.get(track_url, timeout=5)
+                content = sub_res.text.strip()
+                if content and not content.startswith('<html') and len(content) > 100:
+                    raw_text = ""
+                    if content.startswith('<'):
+                        try:
+                            root = ElementTree.fromstring(content)
+                            raw_text = ' '.join([_html.unescape(t.text.strip()) for t in root.findall('.//text') if t.text])
+                        except:
+                            pass
+                    else:
+                        import re as _re
+                        clean = _re.sub(r'WEBVTT|Kind:.*|Language:.*', '', content)
+                        clean = _re.sub(r'\d\d:\d\d:\d\d\.\d\d\d --> \d\d:\d\d:\d\d\.\d\d\d', '', clean)
+                        clean = _re.sub(r'<[^>]+>', '', clean)
+                        lines = [line.strip() for line in clean.split('\n') if line.strip()]
+                        seen = []
+                        for line in lines:
+                            if not seen or seen[-1] != line:
+                                seen.append(line)
+                        raw_text = ' '.join(seen)
+                        
+                    if raw_text and len(raw_text.strip()) > 50:
+                        print(f"✅ Subtitles extracted successfully via Invidious public API ({base_url}).")
+                        if not track.get('label', '').lower().startswith('english'):
+                            translated = get_translation_with_groq(raw_text)
+                            if translated:
+                                return translated
+                        return raw_text
+        except Exception as e:
+            pass
+            
+    return None
+
 def extract_youtube_id(url: str) -> str | None:
     """Safely extracts the video ID from standard, mobile, shorts, and youtu.be YouTube URLs."""
     parsed = urlparse(url)
