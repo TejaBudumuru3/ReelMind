@@ -149,7 +149,7 @@ def get_secure_ydl_opts():
         'skip_download': True,
         'extractor_args': {
             'youtube': {
-                'player_client': ['android', 'ios']
+                'player_client': ['android_embed', 'ios_embed', 'android_sdkless', 'tv_embedded']
             }
         },
         'http_headers': {
@@ -405,7 +405,7 @@ async def async_pipeline_link_to_text(job_id: str, url: str):
                         print("🎉 YouTube pipeline completed via proxy")
                     else:
                         print("⚠️ Proxy also failed. Trying innertube (watch page scraping)...")
-                        final_transcript = await fetch_transcript_via_innertube(yt_id)
+                        final_transcript = await fetch_transcript_via_innertube(yt_id, cookie_path)
                         if final_transcript:
                             await embedd_and_store(final_transcript, job_id, job.session_id)
                             await db.job.update(
@@ -458,7 +458,7 @@ async def async_pipeline_link_to_text(job_id: str, url: str):
                         print("🎉 Shorts pipeline completed via proxy")
                     else:
                         print("⚠️ Proxy also failed for Short. Trying innertube...")
-                        final_transcript = await fetch_transcript_via_innertube(yt_id)
+                        final_transcript = await fetch_transcript_via_innertube(yt_id, cookie_path)
                         if final_transcript:
                             await embedd_and_store(final_transcript, job_id, job.session_id)
                             await db.job.update(

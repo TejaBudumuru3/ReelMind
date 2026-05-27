@@ -58,53 +58,78 @@ def get_translation_with_groq(transcript: str) -> str| None:
     return response.choices[0].message.content
 
 async def fetch_youtube_transcript(yt_id: str, cookie_path: str | None) -> str | None:
-    """Fetch transcript using youtube-transcript-api with optional cookie auth. No yt-dlp involved."""
-    try:
-        client = None
+    """Fetch transcript using youtube-transcript-api trying multiple configurations sequentially:
+    1. Cookies + Proxy (if both available)
+    2. Cookies + No Proxy
+    3. No Cookies + Proxy (if proxy available)
+    4. No Cookies + No Proxy
+    """
+    proxy_url = os.getenv("RESIDENTIAL_PROXY_URL")
+    
+    # Define configurations to try
+    configs = []
+    if cookie_path and proxy_url:
+        configs.append({"use_cookies": True, "use_proxy": True})
+    if cookie_path:
+        configs.append({"use_cookies": True, "use_proxy": False})
+    if proxy_url:
+        configs.append({"use_cookies": False, "use_proxy": True})
+    configs.append({"use_cookies": False, "use_proxy": False})
+    
+    for config in configs:
+        use_cookies = config["use_cookies"]
+        use_proxy = config["use_proxy"]
+        print(f"📝 youtube-transcript-api: Trying fetch (cookies={use_cookies}, proxy={use_proxy})...")
         
-        if cookie_path:
+        try:
             session = requests.Session()
-            cookie_jar = MozillaCookieJar(cookie_path)
-            cookie_jar.load(ignore_discard=True, ignore_expires=True)
-            session.cookies.update(cookie_jar)
-            client = YouTubeTranscriptApi(http_client=session)
-            print("🍪 Using authenticated youtube-transcript-api client")
-        else:
-            client = YouTubeTranscriptApi()
+            if use_proxy and proxy_url:
+                session.proxies = {
+                    "http": proxy_url,
+                    "https": proxy_url,
+                }
+            if use_cookies and cookie_path:
+                cookie_jar = MozillaCookieJar(cookie_path)
+                cookie_jar.load(ignore_discard=True, ignore_expires=True)
+                session.cookies.update(cookie_jar)
             
-        transcript_list = client.list(video_id=yt_id)
-        transcripts_iter = list(transcript_list)
-        if not transcripts_iter:
-            raise Exception("No transcripts available")
-        
-        first_transcript = transcripts_iter[0]
-        try:
-            transcripts = transcript_list.find_transcript(['en', 'en-US', 'en-CA', 'en-GB', 'en-IN'])
-            raw_text = " ".join([item.text for item in transcripts.fetch()])
-            print("✅ English transcript fetched directly.")
-            return raw_text
-        except:
-            pass
-        
-        try:
-            translated = first_transcript.translate('en')
-            raw_text = " ".join([item.text for item in translated.fetch()])
-            print("✅ Translated to English via YouTube.")
-            return raw_text
-        except:
-            pass
-        
-        # Last resort: fetch raw and translate with Groq
-        raw_text = " ".join([item.text for item in first_transcript.fetch()])
-        translated_via_groq = get_translation_with_groq(raw_text)
-        if translated_via_groq:
-            print("✅ Translated via Groq LLM.")
-            return translated_via_groq
-        
-        return None
-    except Exception as e:
-        print(f"❌ youtube-transcript-api failed: {e}")
-        return None
+            client = YouTubeTranscriptApi(http_client=session)
+            transcript_list = client.list(video_id=yt_id)
+            transcripts_iter = list(transcript_list)
+            if not transcripts_iter:
+                raise Exception("No transcripts available")
+                
+            first_transcript = transcripts_iter[0]
+            # Try direct English
+            try:
+                transcripts = transcript_list.find_transcript(['en', 'en-US', 'en-CA', 'en-GB', 'en-IN'])
+                raw_text = " ".join([item.text for item in transcripts.fetch()])
+                print(f"✅ English transcript fetched directly (cookies={use_cookies}, proxy={use_proxy}).")
+                return raw_text
+            except:
+                pass
+            
+            # Try YouTube translation
+            try:
+                translated = first_transcript.translate('en')
+                raw_text = " ".join([item.text for item in translated.fetch()])
+                print(f"✅ Translated to English via YouTube (cookies={use_cookies}, proxy={use_proxy}).")
+                return raw_text
+            except:
+                pass
+            
+            # Last resort: fetch raw and translate with Groq
+            raw_text = " ".join([item.text for item in first_transcript.fetch()])
+            translated_via_groq = get_translation_with_groq(raw_text)
+            if translated_via_groq:
+                print(f"✅ Translated via Groq LLM (cookies={use_cookies}, proxy={use_proxy}).")
+                return translated_via_groq
+                
+        except Exception as e:
+            print(f"❌ Configuration (cookies={use_cookies}, proxy={use_proxy}) failed: {e}")
+            
+    print("❌ All youtube-transcript-api fetch configurations failed.")
+    return None
 
 async def fetch_transcript_via_proxy(yt_id: str) -> str | None:
     """Fetch transcript using youtube-transcript-api routed through a residential proxy.
@@ -162,7 +187,7 @@ async def fetch_transcript_via_proxy(yt_id: str) -> str | None:
         print(f"❌ Residential proxy transcript fetch failed: {e}")
         return None
 
-async def fetch_transcript_via_innertube(yt_id: str) -> str | None:
+async def fetch_transcript_via_innertube(yt_id: str, cookie_path: str | None = None) -> str | None:
     """
     Fetch captions by scraping the YouTube watch page HTML.
     
@@ -172,148 +197,182 @@ async def fetch_transcript_via_innertube(yt_id: str) -> str | None:
     
     This bypasses youtube-transcript-api and yt-dlp entirely.
     """
-    try:
-        session = requests.Session()
-        # Set consent cookies to bypass GDPR/cookie walls
-        session.cookies.set('CONSENT', 'YES+cb', domain='.youtube.com')
-        session.cookies.set('SOCS', 'CAESEwgDEgk3ODE3NjY4MTIaAmVuIAEaBgiA_LyaBg', domain='.youtube.com')
+    proxy_url = os.getenv("RESIDENTIAL_PROXY_URL")
+    
+    # Try different request configurations:
+    # 1. With cookies, without proxy (since proxy triggers cookie rejection)
+    # 2. With cookies, with proxy (as fallback)
+    # 3. Without cookies, with proxy
+    # 4. Without cookies, without proxy
+    
+    configs = []
+    if cookie_path and os.path.exists(cookie_path):
+        configs.append({"use_cookies": True, "use_proxy": False})
+        if proxy_url:
+            configs.append({"use_cookies": True, "use_proxy": True})
+    
+    if proxy_url:
+        configs.append({"use_cookies": False, "use_proxy": True})
+    configs.append({"use_cookies": False, "use_proxy": False})
+    
+    headers = {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
+        'Accept-Language': 'en-US,en;q=0.9',
+        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+    }
+    
+    for config in configs:
+        use_cookies = config["use_cookies"]
+        use_proxy = config["use_proxy"]
+        print(f"🔌 Innertube: Trying fetch (cookies={use_cookies}, proxy={use_proxy})...")
         
-        headers = {
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
-            'Accept-Language': 'en-US,en;q=0.9',
-            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-        }
-        
-        print(f"🔌 Innertube: Fetching watch page for {yt_id}...")
-        page_resp = session.get(
-            f'https://www.youtube.com/watch?v={yt_id}',
-            headers=headers,
-            timeout=15
-        )
-        
-        if page_resp.status_code != 200:
-            print(f"  ⚠️ Watch page returned {page_resp.status_code}")
-            return None
-        
-        page_text = page_resp.text
-        
-        # Check for bot detection
-        if 'confirm you' in page_text.lower() and 'not a bot' in page_text.lower():
-            print("  ❌ YouTube bot detection triggered on watch page")
-            return None
-        
-        # Extract ytInitialPlayerResponse JSON
-        import re as _re
-        match = _re.search(r'var ytInitialPlayerResponse\s*=\s*(\{.+?\});\s*var', page_text)
-        if not match:
-            match = _re.search(r'ytInitialPlayerResponse\s*=\s*(\{.+?\});\s*var', page_text)
-        
-        if not match:
-            print("  ❌ Could not find ytInitialPlayerResponse in page")
-            return None
-        
-        import json as _json
-        player_data = _json.loads(match.group(1))
-        
-        # Check playability
-        playability = player_data.get('playabilityStatus', {})
-        status = playability.get('status')
-        if status != 'OK':
-            reason = playability.get('reason', 'Unknown')
-            print(f"  ⚠️ Video not playable: {status} - {reason}")
-            return None
-        
-        # Extract caption tracks
-        captions_data = player_data.get('captions', {})
-        renderer = captions_data.get('playerCaptionsTracklistRenderer', {})
-        caption_tracks = renderer.get('captionTracks', [])
-        
-        if not caption_tracks:
-            print("  ⚠️ No caption tracks found in player response")
-            return None
-        
-        print(f"  📋 Found {len(caption_tracks)} caption track(s)")
-        
-        # Find English track first
-        target_track = None
-        is_english = False
-        for track in caption_tracks:
-            lang = track.get('languageCode', '')
-            if lang.startswith('en'):
-                target_track = track
-                is_english = True
-                break
-        
-        # Fall back to first available track
-        if not target_track:
-            target_track = caption_tracks[0]
-            print(f"  🌐 No English track. Using {target_track.get('languageCode', '?')}")
-        
-        base_url = target_track.get('baseUrl')
-        if not base_url:
-            print("  ⚠️ No baseUrl in caption track")
-            return None
-        
-        # Fetch the caption content immediately (signed URL should work)
-        # If not English, try requesting translation
-        fetch_url = base_url
-        if not is_english:
-            fetch_url += '&tlang=en'
-        
-        caption_resp = session.get(fetch_url, headers=headers, timeout=10)
-        
-        if caption_resp.status_code != 200:
-            print(f"  ⚠️ Caption fetch returned {caption_resp.status_code}")
-            # If translation failed, try without translation
-            if not is_english and '&tlang=en' in fetch_url:
-                print("  🔄 Retrying without translation...")
-                caption_resp = session.get(base_url, headers=headers, timeout=10)
-                if caption_resp.status_code != 200:
-                    print(f"  ❌ Raw caption fetch also failed: {caption_resp.status_code}")
-                    return None
-                is_english = False  # Will need Groq translation
-            else:
-                return None
-        
-        # Parse the XML caption response
         try:
+            session = requests.Session()
+            if use_proxy and proxy_url:
+                session.proxies = {"http": proxy_url, "https": proxy_url}
+            
+            if use_cookies and cookie_path:
+                cookie_jar = MozillaCookieJar(cookie_path)
+                cookie_jar.load(ignore_discard=True, ignore_expires=True)
+                session.cookies.update(cookie_jar)
+            else:
+                session.cookies.set('CONSENT', 'YES+cb', domain='.youtube.com')
+                session.cookies.set('SOCS', 'CAESEwgDEgk3ODE3NjY4MTIaAmVuIAEaBgiA_LyaBg', domain='.youtube.com')
+                
+            page_resp = session.get(
+                f'https://www.youtube.com/watch?v={yt_id}',
+                headers=headers,
+                timeout=12
+            )
+            
+            if page_resp.status_code != 200:
+                print(f"  ⚠️ Watch page returned {page_resp.status_code}")
+                continue
+                
+            page_text = page_resp.text
+            
+            if 'confirm you' in page_text.lower() and 'not a bot' in page_text.lower():
+                print("  ❌ YouTube bot detection triggered on watch page")
+                continue
+                
+            # Extract player response
+            import re as _re
+            import json as _json
+            
+            match = _re.search(r'ytInitialPlayerResponse\s*=\s*(\{.+?\});', page_text)
+            if not match:
+                match = _re.search(r'ytInitialPlayerResponse\s*=\s*(\{.+?\})\s*;', page_text)
+                
+            player_data = None
+            if match:
+                try:
+                    player_data = _json.loads(match.group(1))
+                except Exception:
+                    pass
+                    
+            if not player_data:
+                # Try brace matching from the first occurrence of ytInitialPlayerResponse
+                idx = page_text.find('ytInitialPlayerResponse')
+                if idx != -1:
+                    start_idx = page_text.find('{', idx)
+                    if start_idx != -1:
+                        brace_count = 0
+                        for i in range(start_idx, len(page_text)):
+                            if page_text[i] == '{':
+                                brace_count += 1
+                            elif page_text[i] == '}':
+                                brace_count -= 1
+                                if brace_count == 0:
+                                    try:
+                                        player_data = _json.loads(page_text[start_idx:i+1])
+                                        break
+                                    except Exception:
+                                        pass
+                                        
+            if not player_data:
+                print("  ❌ Could not parse ytInitialPlayerResponse in page")
+                continue
+                
+            playability = player_data.get('playabilityStatus', {})
+            status = playability.get('status')
+            if status != 'OK':
+                reason = playability.get('reason', 'Unknown')
+                print(f"  ⚠️ Video not playable (cookies={use_cookies}, proxy={use_proxy}): {status} - {reason}")
+                continue
+                
+            captions_data = player_data.get('captions', {})
+            renderer = captions_data.get('playerCaptionsTracklistRenderer', {})
+            caption_tracks = renderer.get('captionTracks', [])
+            
+            if not caption_tracks:
+                print("  ⚠️ No caption tracks found in player response")
+                continue
+                
+            print(f"  📋 Found {len(caption_tracks)} caption track(s)")
+            
+            target_track = None
+            is_english = False
+            for track in caption_tracks:
+                lang = track.get('languageCode', '')
+                if lang.startswith('en'):
+                    target_track = track
+                    is_english = True
+                    break
+                    
+            if not target_track:
+                target_track = caption_tracks[0]
+                print(f"  🌐 No English track. Using {target_track.get('languageCode', '?')}")
+                
+            base_url = target_track.get('baseUrl')
+            if not base_url:
+                print("  ⚠️ No baseUrl in caption track")
+                continue
+                
+            fetch_url = base_url
+            if not is_english:
+                fetch_url += '&tlang=en'
+                
+            caption_resp = session.get(fetch_url, headers=headers, timeout=10)
+            if caption_resp.status_code != 200:
+                print(f"  ⚠️ Caption fetch returned {caption_resp.status_code}")
+                if not is_english and '&tlang=en' in fetch_url:
+                    caption_resp = session.get(base_url, headers=headers, timeout=10)
+                    if caption_resp.status_code != 200:
+                        continue
+                    is_english = False
+                else:
+                    continue
+                    
             caption_text = caption_resp.text.strip()
             if not caption_text or caption_text.startswith('<html'):
-                print("  ⚠️ Got HTML instead of caption XML (rate limited)")
-                return None
-            
+                print("  ⚠️ Got HTML instead of caption XML")
+                continue
+                
+            from xml.etree import ElementTree
+            import html as _html
             root = ElementTree.fromstring(caption_text)
             texts = []
             for elem in root.iter('text'):
                 if elem.text:
-                    decoded = html.unescape(elem.text)
-                    texts.append(decoded)
-            
+                    texts.append(_html.unescape(elem.text))
+                    
             if not texts:
-                print("  ⚠️ No text found in caption XML")
-                return None
-            
+                continue
+                
             transcript = " ".join(texts)
-            print(f"  ✅ Got {len(texts)} caption segments via innertube")
-            
-            # If we fetched a non-English transcript, translate with Groq
             if not is_english:
                 print("  🌐 Translating non-English transcript via Groq...")
                 translated = get_translation_with_groq(transcript)
                 if translated:
                     return translated
-                # Return raw if translation fails
-                print("  ⚠️ Groq translation failed, returning raw transcript")
-            
+                    
             return transcript
             
-        except ElementTree.ParseError as xml_err:
-            print(f"  ❌ Failed to parse caption XML: {xml_err}")
-            return None
+        except Exception as e:
+            print(f"  ❌ Config (cookies={use_cookies}, proxy={use_proxy}) failed: {e}")
             
-    except Exception as e:
-        print(f"❌ Innertube transcript fetch failed: {e}")
-        return None
+    print("❌ All Innertube fetch configs failed.")
+    return None
 
 def extract_youtube_id(url: str) -> str | None:
     """Safely extracts the video ID from standard, mobile, shorts, and youtu.be YouTube URLs."""
