@@ -14,7 +14,7 @@ import asyncio
 from dotenv import load_dotenv
 from googleapiclient.discovery import build
 from worker.embeddings import embedd_and_store
-from worker.youtube import extract_youtube_id, get_translation_with_groq, yt_client, get_youtube_metadata, fetch_youtube_transcript, fetch_transcript_via_proxy
+from worker.youtube import extract_youtube_id, get_translation_with_groq, yt_client, get_youtube_metadata, fetch_youtube_transcript, fetch_transcript_via_proxy, fetch_transcript_via_innertube
 
 
 
@@ -150,11 +150,11 @@ def get_secure_ydl_opts():
         'extractor_args': {
             'youtube': {
                 'player_client': ['android', 'ios']
-            },
-        'http_headers': {
-                'User-Agent': 'Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.6422.113 Mobile Safari/537.36',
-                'Accept-Language': 'en-US,en;q=0.9',
             }
+        },
+        'http_headers': {
+            'User-Agent': 'Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.6422.113 Mobile Safari/537.36',
+            'Accept-Language': 'en-US,en;q=0.9',
         }
     }
     
@@ -404,8 +404,19 @@ async def async_pipeline_link_to_text(job_id: str, url: str):
                         await db.execute_raw(f"SELECT pg_notify('job_updates', '{job_id}')")
                         print("🎉 YouTube pipeline completed via proxy")
                     else:
-                        print("⚠️ Proxy also failed. Falling back to yt-dlp...")
-                        fallback_to_ytdlp = True
+                        print("⚠️ Proxy also failed. Trying innertube (watch page scraping)...")
+                        final_transcript = await fetch_transcript_via_innertube(yt_id)
+                        if final_transcript:
+                            await embedd_and_store(final_transcript, job_id, job.session_id)
+                            await db.job.update(
+                                where={"id": job_id},
+                                data={"status": 'COMPLETED', "updated_at": datetime.now(), "transcript": final_transcript}
+                            )
+                            await db.execute_raw(f"SELECT pg_notify('job_updates', '{job_id}')")
+                            print("🎉 YouTube pipeline completed via innertube")
+                        else:
+                            print("⚠️ Innertube also failed. Falling back to yt-dlp...")
+                            fallback_to_ytdlp = True
 
             elif yt_id and not response:
                 # =====================================================
@@ -446,8 +457,19 @@ async def async_pipeline_link_to_text(job_id: str, url: str):
                         await db.execute_raw(f"SELECT pg_notify('job_updates', '{job_id}')")
                         print("🎉 Shorts pipeline completed via proxy")
                     else:
-                        print("⚠️ Proxy also failed for Short. Falling back to yt-dlp...")
-                        fallback_to_ytdlp = True
+                        print("⚠️ Proxy also failed for Short. Trying innertube...")
+                        final_transcript = await fetch_transcript_via_innertube(yt_id)
+                        if final_transcript:
+                            await embedd_and_store(final_transcript, job_id, job.session_id)
+                            await db.job.update(
+                                where={"id": job_id},
+                                data={"status": 'COMPLETED', "updated_at": datetime.now(), "transcript": final_transcript}
+                            )
+                            await db.execute_raw(f"SELECT pg_notify('job_updates', '{job_id}')")
+                            print("🎉 Shorts pipeline completed via innertube")
+                        else:
+                            print("⚠️ Innertube also failed for Short. Falling back to yt-dlp...")
+                            fallback_to_ytdlp = True
 
             if (not yt_id) or fallback_to_ytdlp:
                 # =====================================================
