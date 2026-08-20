@@ -1,17 +1,18 @@
-from prisma_db import Prisma
+from core.db import prisma_client as db
+from core.logging import get_logger
 import os
 from langchain_groq import ChatGroq
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 from langchain_core.messages import HumanMessage, AIMessage
 from dotenv import load_dotenv
 from rag.retrieval import retrive_chunks
+import groq
+
+logger = get_logger("retrieval_chain")
 load_dotenv()
 
 async def get_session_metadata(session_id: str):
     try:
-        db = Prisma()
-        await db.connect()
-
         jobs = await db.job.find_many(
             where={
                 "session_id": session_id
@@ -19,11 +20,8 @@ async def get_session_metadata(session_id: str):
         )
         return jobs
     except Exception as e:
-        print(f"Error in getting session metadata: {e}")
+        logger.error(f"Error in getting session metadata: {e}", exc_info=True)
         return []
-    finally:
-        await db.disconnect()
-
 def build_system_prompt(metadata: list, chunks: list):
     video_lines = []
     for job in metadata:
@@ -44,35 +42,31 @@ def build_system_prompt(metadata: list, chunks: list):
     chunk_lines = []
     for c in chunks:
         chunk_lines.append(
-            f"**Video {c['label']}**: {c['content']}"
+            f"**Video {c['label']} [Chunk {c['chunk_index']} of {c.get('max_chunk', '?')}]**: {c['content']}"
         )
     
     chunks_section = "\n".join(chunk_lines) if chunk_lines else "NO RELEVANT INFORMATION WAS FOUND"
 
     return f"""
-        You are a social media video analyst for creators. You have access to metadata and transcripts from videos in this session.
+        You are a highly analytical social media video consultant. Your sole purpose is to analyze the provided metadata and transcripts to answer the user's question accurately.
 
-        VIDEO METADATA:
+        # 📊 EXACT VIDEO METADATA
         {metadata_section}
 
-        RELEVANT TRANSCRIPT CHUNKS:
+        # 📝 RELEVANT TRANSCRIPT CHUNKS (Context)
         {chunks_section}
 
-        INSTRUCTIONS:
-        - When answering about engagement, views, likes, or comments, use the VIDEO METADATA above. These are exact numbers.
-        - When answering about content, hooks, structure, or what was said, use the TRANSCRIPT CHUNKS above.
-        - Always cite your source as **Video X** when referencing transcript content.
-        - For comparison questions, analyze both videos and provide specific differences.
-        - For single-video questions, focus on that specific video only.
-        - Be specific and data-driven. Avoid generic advice.
-        - If the transcript chunks don't contain enough information to answer, say so honestly rather than making things up.
-
+        # 🎯 STRICT INSTRUCTIONS
+        1. **Data Primacy**: Never hallucinate numbers. If a user asks for views, likes, or engagement rate, pull the EXACT number from the VIDEO METADATA section.
+        2. **Content Extraction**: If asked about the "hook", "CTA (Call to Action)", or specific phrasing, quote directly from the TRANSCRIPT CHUNKS. Do not invent dialogue.
+        3. **Clear Citations**: Always explicitly name the video when referencing it (e.g., "In **Video A** by CreatorX...").
+        4. **Comparative Analysis**: If comparing multiple videos, explicitly contrast their metrics (e.g., "Video A had 5% higher engagement than Video B because...").
+        5. **Handling Missing Info**: If the context provided does not contain the answer, explicitly state: "I don't have enough information in the provided transcripts to answer that." Do not guess.
+        6. **Tone**: Direct, professional, insightful, and concise. Avoid fluff.
+        7. **Positional Awareness**: Chunks are labeled with their timeline position [Chunk N of M]. Chunk 0 is the opening hook. The highest chunk is the ending/CTA. Use this context to reason about pacing and structural flow.
     """
 
 async def get_chat_history(session_id: str):
-    db = Prisma()
-    await db.connect()
-
     try:
         messages = await db.message.find_many(
             where={ "session_id": session_id},
@@ -87,13 +81,10 @@ async def get_chat_history(session_id: str):
                 chat_history.append(AIMessage(content=msg.content))
         return chat_history
     except Exception as e:
-        print(f"Error in getting chat history: {e}")
+        logger.error(f"Error in getting chat history: {e}", exc_info=True)
         return []
-    finally:
-        await db.disconnect()
-
 llm = ChatGroq(
-    model="llama-3.3-70b-versatile",
+    model="qwen/qwen3.6-27b",
     api_key=os.getenv("GROQ_API"),
     temperature=0.3,
     streaming=True,
@@ -107,23 +98,31 @@ prompt = ChatPromptTemplate.from_messages([
 
 chain = prompt | llm    
 
-async def stream_chat(question: str, session_id: str, ):
+async def stream_chat(question: str, session_id: str, focus_job_id: str = None):
 
     chat_history = await get_chat_history(session_id)
 
     jobs = await get_session_metadata(session_id) 
+    if focus_job_id:
+        jobs = [job for job in jobs if job.id == focus_job_id]
 
-    chunks = await retrive_chunks(question, session_id)   
+    chunks = await retrive_chunks(question, session_id, focus_job_id)   
 
     system_prompt = build_system_prompt(jobs, chunks) 
 
-    
-
-    async for token in chain.astream({
-        "system_prompt": system_prompt,
-        'chat_history': chat_history,
-        'question': question
-    }):
-        yield token.content
-
-    
+    try:
+        async for token in chain.astream({
+            "system_prompt": system_prompt,
+            'chat_history': chat_history,
+            'question': question
+        }):
+            yield token.content
+    except groq.RateLimitError as e:
+        logger.warning(f"Groq RateLimitError in stream_chat: {e}", extra={"session_id": session_id})
+        yield "\n\n**Error:** The AI is currently experiencing heavy load (Rate Limited). Please wait a moment and try again."
+    except groq.APIError as e:
+        logger.error(f"Groq APIError in stream_chat: {e}", exc_info=True, extra={"session_id": session_id})
+        yield "\n\n**Error:** An issue occurred with the AI provider. Please try again later."
+    except Exception as e:
+        logger.error(f"Unexpected error in stream_chat: {e}", exc_info=True, extra={"session_id": session_id})
+        yield f"\n\n**Error:** Something went wrong generating the response."

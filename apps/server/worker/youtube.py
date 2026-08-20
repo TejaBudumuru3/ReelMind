@@ -18,6 +18,7 @@ from dotenv import load_dotenv
 from groq import Groq
 import requests
 from http.cookiejar import MozillaCookieJar
+from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type
 
 load_dotenv()
 
@@ -28,34 +29,76 @@ GROQ_API_KEY = os.getenv("GROQ_API")
 groqClient = Groq(api_key=GROQ_API_KEY)
 yt_client = YouTubeTranscriptApi()
 
-def get_translation_with_groq(transcript: str) -> str| None:
-    
+def get_translation_with_groq(transcript: str) -> str | None:
     if transcript == "":
         print("There is no text to translate.")
         return None
 
     print("="*60)
-    print("calling llama using GROQ for Translating the transcript in English")
+    print("calling Qwen using GROQ for Translating the transcript in English (Chunked)")
     print("="*60)
-    response = groqClient.chat.completions.create(
-        model="llama-3.3-70b-versatile",
-        messages=[
-            {
-                "role": "system",
-                "content": "You are a professional, headless translation engine. Translate the provided text into standard English. You must output ONLY the translated English text. Do not include any introductions, conversational filler, or markdown formatting. If the text is already in English, return it exactly as is"
-            },
-            {
-                "role": "user",
-                "content" : transcript
-            }
-        ],
-        temperature=1,
-        max_completion_tokens=1024,
-        top_p=1,
+    
+    # Split the transcript into chunks of roughly 2500 characters
+    # to avoid LLM truncation or summarization on long videos.
+    chunk_size = 2500
+    chunks = []
+    current_chunk = []
+    current_len = 0
+    
+    for sentence in transcript.replace('?', '.').replace('!', '.').split('. '):
+        sentence = sentence.strip()
+        if not sentence:
+            continue
+        sentence += '. '
+        if current_len + len(sentence) > chunk_size and current_chunk:
+            chunks.append("".join(current_chunk))
+            current_chunk = []
+            current_len = 0
+        current_chunk.append(sentence)
+        current_len += len(sentence)
+        
+    if current_chunk:
+        chunks.append("".join(current_chunk))
 
-    )
+    translated_chunks = []
+    rate_limit_hit = False
+    
+    for i, chunk in enumerate(chunks):
+        if rate_limit_hit:
+            print(f"Skipping chunk {i+1} due to Groq rate limit. Falling back to raw text.")
+            translated_chunks.append(chunk.strip())
+            continue
 
-    return response.choices[0].message.content
+        print(f"Translating chunk {i+1}/{len(chunks)}...")
+        try:
+            response = groqClient.chat.completions.create(
+                model="qwen-2.5-32b",
+                messages=[
+                    {
+                        "role": "system",
+                        "content": "You are a professional, headless translation engine. Translate the provided text into standard English VERBATIM. Do NOT summarize. Do NOT analyze. You must output ONLY the translated English text. Do not include any introductions, conversational filler, or markdown formatting. If the text is already in English, return it exactly as is."
+                    },
+                    {
+                        "role": "user",
+                        "content" : chunk
+                    }
+                ],
+                temperature=0,
+                max_tokens=8000,
+                top_p=1,
+            )
+            translated_chunks.append(response.choices[0].message.content.strip())
+        except Exception as e:
+            error_msg = str(e).lower()
+            if "429" in error_msg or "rate limit" in error_msg:
+                print("🚨 GROQ RATE LIMIT REACHED! Short-circuiting further translation.")
+                rate_limit_hit = True
+                
+            print(f"Translation failed on chunk {i+1}: {e}")
+            # Fallback to the original chunk if translation fails
+            translated_chunks.append(chunk.strip())
+
+    return " ".join(translated_chunks)
 
 async def fetch_youtube_transcript(yt_id: str, cookie_path: str | None) -> str | None:
     """Fetch transcript using youtube-transcript-api trying multiple configurations sequentially:
@@ -64,6 +107,17 @@ async def fetch_youtube_transcript(yt_id: str, cookie_path: str | None) -> str |
     3. No Cookies + Proxy (if proxy available)
     4. No Cookies + No Proxy
     """
+    
+    @retry(
+        stop=stop_after_attempt(3), 
+        wait=wait_exponential(multiplier=1, min=2, max=10),
+        retry=retry_if_exception_type(Exception),
+        reraise=True
+    )
+    def _execute_client_list(session, video_id):
+        client = YouTubeTranscriptApi(http_client=session)
+        return client.list(video_id=video_id)
+
     proxy_url = os.getenv("RESIDENTIAL_PROXY_URL")
     
     # Define configurations to try
@@ -93,8 +147,7 @@ async def fetch_youtube_transcript(yt_id: str, cookie_path: str | None) -> str |
                 cookie_jar.load(ignore_discard=True, ignore_expires=True)
                 session.cookies.update(cookie_jar)
             
-            client = YouTubeTranscriptApi(http_client=session)
-            transcript_list = client.list(video_id=yt_id)
+            transcript_list = _execute_client_list(session, yt_id)
             transcripts_iter = list(transcript_list)
             if not transcripts_iter:
                 raise Exception("No transcripts available")
@@ -616,7 +669,7 @@ def extract_youtube_id(url: str) -> str | None:
         return parsed.path.strip('/')
     return None
 
-def get_youtube_metadata(video_id: str) -> dict:
+def get_youtube_metadata(video_id: str) -> dict | None:
     """Hits the official Google API. 100% reliable. 0% blocked."""
     try:
         response = None
@@ -627,13 +680,14 @@ def get_youtube_metadata(video_id: str) -> dict:
         )
         response = request.execute()
         
-        if not response['items']:
-            raise ValueError("Video not found or is private.")
+        if not response.get('items'):
+            print("⚠️ Video not found or is private.")
+            return None
             
         return response
-    except HttpError as e:
+    except Exception as e:
         print(f"Google API Error: {e}")
-        return {"views": 0, "likes": 0, "comments": 0, "engagement_rate": Decimal("0.00")}
+        return None
 
 async def async_transcription_pipeline(job_id: str, url: str):
     """The master router for video ingestion."""

@@ -28,3 +28,6 @@ isodate
 
 # QStash (optional)
 qstash==3.4.0
+
+# Rate Limiting
+slowapi==0.1.9

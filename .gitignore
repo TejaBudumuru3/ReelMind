@@ -11,3 +11,4 @@ apps/web/.next/
 apps/web/.next/cache/.rscinfo
 apps/web/node_modules/
 files/
+apps/server/core/__pycache__/
