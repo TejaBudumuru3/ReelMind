@@ -4,7 +4,7 @@ generator client_ts {
 }
 
 generator client_python {
-  provider                    = "../../apps/server/.venv/bin/prisma-client-py"
+  provider                    = "prisma-client-py"
   previewFeatures             = ["postgresqlExtensions"]
   output                      = "../../../apps/server/prisma_db" 
   enable_experimental_decimal = true
@@ -55,6 +55,14 @@ enum Status {
   COMPLETED
   FAILED
 }
+
+enum SubStatus {
+  EXTRACTING_METADATA
+  TRANSCRIBING
+  EMBEDDING
+  READY
+}
+
 enum Role{
     USER
     AI
@@ -63,6 +71,7 @@ enum Role{
 model Job {
   id              String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   session_id      String   @db.Uuid
+  sub_status      SubStatus?
   video_id        String?
   creator         String?
   title           String?

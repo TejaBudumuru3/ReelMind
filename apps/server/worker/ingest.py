@@ -8,7 +8,10 @@ import tempfile
 import httpx
 import uuid
 from groq import Groq
-from prisma_db import Prisma
+from core.db import prisma_client as db
+from core.logging import get_logger
+
+logger = get_logger("ingest")
 from datetime import datetime
 import asyncio
 from dotenv import load_dotenv
@@ -137,7 +140,7 @@ def get_cookies_file_path():
         _COOKIE_FILE_PATH = cookie_file.name
         return _COOKIE_FILE_PATH
     except Exception as e:
-        print(f"Failed to load cookies: {e}")
+        logger.error(f"Failed to load cookies: {e}", exc_info=True)
         return None
 
 def get_secure_ydl_opts():
@@ -271,10 +274,7 @@ def get_transcription_from_groq(info: dict) -> str | None:
 
 
 async def async_pipeline_link_to_text(job_id: str, url: str):
-    db = Prisma()
     try:
-    
-        await db.connect()
         job = await db.job.find_first(
             where={ "id": job_id },
         )
@@ -284,10 +284,15 @@ async def async_pipeline_link_to_text(job_id: str, url: str):
         
         # Idempotency: if QStash retries and job is already done, skip silently
         if job.status in ['COMPLETED', 'FAILED', 'PROCESSING']:
-            print(f"⏭️ Job {job_id} already {job.status}, skipping duplicate delivery.")
+            logger.info(f"Job {job_id} already {job.status}, skipping duplicate delivery.")
             return
 
         if job.status == 'PENDING':
+            
+            await db.job.update(
+                where={"id": job_id},
+                data={"sub_status": "EXTRACTING_METADATA"}
+            )
 
             yt_id = extract_youtube_id(url)
             use_yt_api = False
@@ -300,7 +305,7 @@ async def async_pipeline_link_to_text(job_id: str, url: str):
                 if not response:
                     print(f"⚠️ Data API returned no items for {yt_id} (Shorts-only video).")
 
-            if yt_id and response:
+            if yt_id and response and response.get('items'):
                 # =====================================================
                 # YOUTUBE FULL PATH: Data API + transcript-api
                 # =====================================================
@@ -379,16 +384,31 @@ async def async_pipeline_link_to_text(job_id: str, url: str):
                     }
                 )
 
+                # Sync video title to Session
+                try:
+                    if snippet.get('title') and job.session_id:
+                        sess = await db.session.find_unique(where={"id": job.session_id}, include={"jobs": True})
+                        if sess:
+                            titles = [j.title for j in (sess.jobs or []) if j.title and j.id != job_id]
+                            if snippet.get('title'):
+                                titles.append(snippet.get('title'))
+                            if titles:
+                                await db.session.update(where={"id": job.session_id}, data={"title": " vs ".join(titles)})
+                except Exception as se:
+                    logger.error(f"Error syncing session title: {se}")
+
                 # Get transcript via youtube-transcript-api
+                await db.job.update(where={"id": job_id}, data={"sub_status": "TRANSCRIBING"})
                 print(f"📝 Fetching transcript for {yt_id}...")
                 cookie_path = get_cookies_file_path()
                 final_transcript = await fetch_youtube_transcript(yt_id, cookie_path)
 
                 if final_transcript:
+                    await db.job.update(where={"id": job_id}, data={"sub_status": "EMBEDDING"})
                     await embedd_and_store(final_transcript, job_id, job.session_id)
                     await db.job.update(
                         where={"id": job_id},
-                        data={"status": 'COMPLETED', "updated_at": datetime.now(), "transcript": final_transcript}
+                        data={"status": 'COMPLETED', "sub_status": "READY", "updated_at": datetime.now(), "transcript": final_transcript}
                     )
                     await db.execute_raw(f"SELECT pg_notify('job_updates', '{job_id}')")
                     print("🎉 YouTube pipeline completed successfully")
@@ -396,10 +416,11 @@ async def async_pipeline_link_to_text(job_id: str, url: str):
                     print("⚠️ youtube-transcript-api failed. Trying residential proxy...")
                     final_transcript = await fetch_transcript_via_proxy(yt_id)
                     if final_transcript:
+                        await db.job.update(where={"id": job_id}, data={"sub_status": "EMBEDDING"})
                         await embedd_and_store(final_transcript, job_id, job.session_id)
                         await db.job.update(
                             where={"id": job_id},
-                            data={"status": 'COMPLETED', "updated_at": datetime.now(), "transcript": final_transcript}
+                            data={"status": 'COMPLETED', "sub_status": "READY", "updated_at": datetime.now(), "transcript": final_transcript}
                         )
                         await db.execute_raw(f"SELECT pg_notify('job_updates', '{job_id}')")
                         print("🎉 YouTube pipeline completed via proxy")
@@ -407,10 +428,11 @@ async def async_pipeline_link_to_text(job_id: str, url: str):
                         print("⚠️ Proxy also failed. Trying innertube (watch page scraping)...")
                         final_transcript = await fetch_transcript_via_innertube(yt_id, cookie_path)
                         if final_transcript:
+                            await db.job.update(where={"id": job_id}, data={"sub_status": "EMBEDDING"})
                             await embedd_and_store(final_transcript, job_id, job.session_id)
                             await db.job.update(
                                 where={"id": job_id},
-                                data={"status": 'COMPLETED', "updated_at": datetime.now(), "transcript": final_transcript}
+                                data={"status": 'COMPLETED', "sub_status": "READY", "updated_at": datetime.now(), "transcript": final_transcript}
                             )
                             await db.execute_raw(f"SELECT pg_notify('job_updates', '{job_id}')")
                             print("🎉 YouTube pipeline completed via innertube")
@@ -418,10 +440,11 @@ async def async_pipeline_link_to_text(job_id: str, url: str):
                             print("⚠️ Innertube also failed. Trying yt-dlp captions extraction...")
                             final_transcript = await fetch_transcript_via_ytdlp(yt_id, cookie_path)
                             if final_transcript:
+                                await db.job.update(where={"id": job_id}, data={"sub_status": "EMBEDDING"})
                                 await embedd_and_store(final_transcript, job_id, job.session_id)
                                 await db.job.update(
                                     where={"id": job_id},
-                                    data={"status": 'COMPLETED', "updated_at": datetime.now(), "transcript": final_transcript}
+                                    data={"status": 'COMPLETED', "sub_status": "READY", "updated_at": datetime.now(), "transcript": final_transcript}
                                 )
                                 await db.execute_raw(f"SELECT pg_notify('job_updates', '{job_id}')")
                                 print("🎉 YouTube pipeline completed via yt-dlp captions")
@@ -429,10 +452,11 @@ async def async_pipeline_link_to_text(job_id: str, url: str):
                                 print("⚠️ yt-dlp captions also failed. Trying public APIs (Invidious)...")
                                 final_transcript = await fetch_transcript_via_public_apis(yt_id)
                                 if final_transcript:
+                                    await db.job.update(where={"id": job_id}, data={"sub_status": "EMBEDDING"})
                                     await embedd_and_store(final_transcript, job_id, job.session_id)
                                     await db.job.update(
                                         where={"id": job_id},
-                                        data={"status": 'COMPLETED', "updated_at": datetime.now(), "transcript": final_transcript}
+                                        data={"status": 'COMPLETED', "sub_status": "READY", "updated_at": datetime.now(), "transcript": final_transcript}
                                     )
                                     await db.execute_raw(f"SELECT pg_notify('job_updates', '{job_id}')")
                                     print("🎉 YouTube pipeline completed via public APIs")
@@ -594,37 +618,55 @@ async def async_pipeline_link_to_text(job_id: str, url: str):
                     }
                 )
 
+                # Sync video title to Session
+                try:
+                    if metadata.get('title') and job.session_id:
+                        sess = await db.session.find_unique(where={"id": job.session_id}, include={"jobs": True})
+                        if sess:
+                            titles = [j.title for j in (sess.jobs or []) if j.title and j.id != job_id]
+                            if metadata.get('title'):
+                                titles.append(metadata.get('title'))
+                            if titles:
+                                await db.session.update(where={"id": job.session_id}, data={"title": " vs ".join(titles)})
+                except Exception as se:
+                    logger.error(f"Error syncing session title: {se}")
+
+                await db.job.update(where={"id": job_id}, data={"sub_status": "TRANSCRIBING"})
                 transcription = get_transcription_from_groq(info)
                 if transcription:
+                    await db.job.update(where={"id": job_id}, data={"sub_status": "EMBEDDING"})
                     await embedd_and_store(transcription, job_id, job.session_id)
                     await db.job.update(
                         where={"id": job_id},
-                        data={"status": 'COMPLETED', "updated_at": datetime.now(), "transcript": transcription}
+                        data={"status": 'COMPLETED', "sub_status": "READY", "updated_at": datetime.now(), "transcript": transcription}
                     )
-                    await db.execute_raw(f"SELECT pg_notify('job_updates', '{job_id}')")
-                    print("pipeline completed successfully")
+                    logger.info("Pipeline completed successfully", extra={"job_id": job_id})
                 else:
                     await db.job.update(
                         where={"id": job_id},
                         data={"status": 'FAILED', "error_message": "Transcription failed", "updated_at": datetime.now()}
                     )
-                    await db.execute_raw(f"SELECT pg_notify('job_updates', '{job_id}')")
     except Exception as e:
-        print(f"Pipeline failed: {e}")
+        logger.error(f"Pipeline failed: {e}", exc_info=True, extra={"job_id": job_id})
+        
+        # Format user-friendly error messages
+        error_str = str(e)
+        if "Sign in to confirm you're not a bot" in error_str or "403" in error_str:
+            error_str = "YouTube is temporarily blocking the server (Bot Protection). Please try a different video or platform."
+        elif "Video duration exceeded" in error_str:
+            error_str = "Video is too long. Please use videos under 15 minutes."
+            
         try:
             current = await db.job.find_unique(where={"id": job_id})
             if current and current.status not in ['COMPLETED', 'FAILED']:
                 await db.job.update(
                     where={"id": job_id},
-                    data={"status": "FAILED", "error_message": str(e), "updated_at": datetime.now()}
+                    data={"status": "FAILED", "error_message": error_str, "updated_at": datetime.now()}
                 )
-                await db.execute_raw(f"SELECT pg_notify('job_updates', '{job_id}')")
             else:
-                print(f"⏭️ Skipping error update — job {job_id} is already {current.status if current else 'missing'}")
+                logger.info(f"Skipping error update — job {job_id} is already {current.status if current else 'missing'}")
         except Exception as inner_e:
-            print(f"Failed to update job status on error: {inner_e}")
-    finally:
-        await db.disconnect()
+            logger.error(f"Failed to update job status on error: {inner_e}", exc_info=True)
 
 
 
