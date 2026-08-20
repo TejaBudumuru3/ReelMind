@@ -35,7 +35,7 @@ def get_translation_with_groq(transcript: str) -> str | None:
         return None
 
     print("="*60)
-    print("calling llama using GROQ for Translating the transcript in English (Chunked)")
+    print("calling Qwen using GROQ for Translating the transcript in English (Chunked)")
     print("="*60)
     
     # Split the transcript into chunks of roughly 2500 characters
@@ -99,6 +99,7 @@ def get_translation_with_groq(transcript: str) -> str | None:
             translated_chunks.append(chunk.strip())
 
     return " ".join(translated_chunks)
+
 async def fetch_youtube_transcript(yt_id: str, cookie_path: str | None) -> str | None:
     """Fetch transcript using youtube-transcript-api trying multiple configurations sequentially:
     1. Cookies + Proxy (if both available)
