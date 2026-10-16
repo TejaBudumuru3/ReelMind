@@ -23,6 +23,7 @@ asyncpg==0.31.0
 # Video extraction
 google-api-python-client==2.196.0
 yt-dlp
+curl-cffi
 youtube-transcript-api
 isodate
 

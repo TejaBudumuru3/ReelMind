@@ -1,6 +1,13 @@
 import os
+import sys
 import json
 from contextlib import asynccontextmanager
+from typing import Optional
+
+if sys.stdout and hasattr(sys.stdout, 'reconfigure'):
+    sys.stdout.reconfigure(encoding='utf-8')
+if sys.stderr and hasattr(sys.stderr, 'reconfigure'):
+    sys.stderr.reconfigure(encoding='utf-8')
 from fastapi import FastAPI, Request, HTTPException, Response
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, HttpUrl, field_validator
@@ -10,9 +17,14 @@ from dotenv import load_dotenv
 import asyncio
 from fastapi.middleware.cors import CORSMiddleware
 from worker.ingest import async_pipeline_link_to_text
+from worker.downloader import extract_download_formats, get_direct_stream_info, stream_ytdlp_process
+import httpx
+from urllib.parse import quote, urlparse
 from rag.retrieval_chain import stream_chat
 from core.db import init_db, close_db, prisma_client as db
 from core.logging import get_logger
+from core.errors import sanitize_error
+from core.config import ENABLE_MEDIA_DOWNLOADS
 from core.limiter import limiter
 from slowapi.errors import RateLimitExceeded
 from slowapi import _rate_limit_exceeded_handler
@@ -52,10 +64,17 @@ class IngestPayload(BaseModel):
     @field_validator('url')
     @classmethod
     def validate_supported_url(cls, v: str):
-        platform_pattern = re.compile(r'youtube\.com|youtu\.be|tiktok\.com|instagram\.com|x\.com|twitter\.com', re.IGNORECASE)
-        if not platform_pattern.search(v):
-            raise ValueError("Unsupported platform. Please provide a link from YouTube, TikTok, Instagram, or X.")
-        return v
+        url_str = v.strip()
+        if not url_str.startswith('https://'):
+            raise ValueError("Only secure HTTPS links (https://...) are supported.")
+        parsed = urlparse(url_str)
+        hostname = (parsed.hostname or '').lower()
+        if not hostname or '.' not in hostname:
+            raise ValueError("Invalid URL: missing valid domain name.")
+        # Reject private/loopback/cloud metadata ranges
+        if hostname in ['localhost', '127.0.0.1', '0.0.0.0', '169.254.169.254'] or hostname.endswith('.local') or hostname.endswith('.internal'):
+            raise ValueError("Restricted address: internal or loopback destinations are not permitted.")
+        return url_str
 
     @field_validator('session_id')
     @classmethod
@@ -83,6 +102,126 @@ app.add_middleware(
 @app.get('/health')
 async def health_check():
     return {"status": "ok", "db_connected": db.is_connected()}
+
+@app.get('/video/formats')
+@limiter.limit("30/minute")
+async def get_video_formats(request: Request, url: str):
+    if not ENABLE_MEDIA_DOWNLOADS:
+        raise HTTPException(status_code=403, detail="Media downloading is disabled in this environment.")
+    try:
+        data = extract_download_formats(url)
+        return data
+    except Exception as e:
+        logger.error(f"Error extracting formats for {url}: {e}", exc_info=True)
+        sanitized = sanitize_error(e)
+        raise HTTPException(status_code=400, detail=sanitized)
+
+@app.get('/video/download')
+@limiter.limit("20/minute")
+async def download_video_stream(
+    request: Request,
+    url: str,
+    format_id: str,
+    ext: Optional[str] = None,
+    title: Optional[str] = None
+):
+    if not ENABLE_MEDIA_DOWNLOADS:
+        raise HTTPException(status_code=403, detail="Media downloading is disabled in this environment.")
+    try:
+        chosen_ext = ext or "mp4"
+        raw_title = title
+        if not raw_title:
+            try:
+                stream_info = get_direct_stream_info(url, format_id)
+                chosen_ext = stream_info.get('ext') or chosen_ext
+                raw_title = stream_info.get('title')
+            except Exception as e:
+                logger.warning(f"Failed to fetch stream info for title, using fallback: {e}")
+                raw_title = "reelmind_download"
+
+        safe_title = re.sub(r'[^a-zA-Z0-9_\- ]+', '', raw_title or "reelmind_download").strip()[:60] or "reelmind_download"
+        filename = f"{safe_title}.{chosen_ext}"
+
+        encoded_filename = quote(filename)
+        headers = {
+            "Content-Disposition": f'attachment; filename="{encoded_filename}"; filename*=UTF-8\'\'{encoded_filename}',
+            "Accept-Ranges": "bytes"
+        }
+
+        if chosen_ext in ["m4a", "aac", "mp3"]:
+            media_type = "audio/mp4"
+        elif chosen_ext in ["opus", "ogg"]:
+            media_type = "audio/ogg"
+        elif chosen_ext == "webm":
+            media_type = "video/webm"
+        else:
+            media_type = "video/mp4"
+
+        return StreamingResponse(stream_ytdlp_process(url, format_id), media_type=media_type, headers=headers)
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to stream format {format_id} for {url}: {e}", exc_info=True)
+        sanitized = sanitize_error(e)
+        raise HTTPException(status_code=500, detail=sanitized)
+
+
+@app.post('/ingest/download')
+@limiter.limit("30/minute")
+async def ingest_download_only(request: Request, payload: IngestPayload):
+    """
+    Ingests video strictly for browser downloading.
+    Bypasses transcription pipeline, LLMs, and duration constraints.
+    """
+    if not ENABLE_MEDIA_DOWNLOADS:
+        raise HTTPException(status_code=403, detail="Media downloading is disabled in this environment.")
+    try:
+        session = await db.session.find_unique(
+            where={"id": payload.session_id},
+            include={"user": True}
+        )
+        if not session or not session.user:
+            raise HTTPException(status_code=404, detail="Session not found")
+
+        label = payload.label
+        if not label:
+            count = await db.job.count(where={"session_id": payload.session_id})
+            label = chr(65 + count)
+
+        # Probe metadata without downloading or checking duration constraints
+        meta = await asyncio.to_thread(extract_download_formats, payload.url)
+        title = meta.get('title') or "Media Stream"
+        thumbnail = meta.get('thumbnail')
+        duration = meta.get('duration') or 0
+
+        job = await db.job.create(
+            data={
+                "session_id": payload.session_id,
+                "status": "COMPLETED",
+                "sub_status": "READY",
+                "url": payload.url,
+                "title": title,
+                "thumbnail_url": thumbnail,
+                "duration": int(duration) if duration else 0,
+                "label": label,
+                "transcript": None
+            }
+        )
+
+        return {
+            "status": "COMPLETED",
+            "job_id": job.id,
+            "session_id": payload.session_id,
+            "title": title
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to ingest download-only URL {payload.url}: {e}", exc_info=True)
+        sanitized = sanitize_error(e)
+        raise HTTPException(status_code=500, detail=sanitized)
+
 
 @app.post('/ingest')
 @limiter.limit("10/day")
@@ -190,13 +329,13 @@ async def worker(req: Request):
     job_id = data.get("job_id")
     video_url = data.get("url")
     
-    print(f"🔥 Webhook verified! Starting heavy extraction for {video_url}")
+    logger.info(f"Webhook verified! Starting heavy extraction for {video_url}", extra={"job_id": job_id})
 
     try:
 
         await async_pipeline_link_to_text(job_id, video_url)
 
-        print("Pipeline completed. Returning 200 OK to QStash.")
+        logger.info("Pipeline completed. Returning 200 OK to QStash.", extra={"job_id": job_id})
 
         return Response(status_code=200)
     
@@ -208,7 +347,7 @@ async def worker(req: Request):
             if current and current.status not in ['COMPLETED', 'FAILED']:
                 await db.job.update(
                     where={ "id": job_id },
-                    data={ "status": "FAILED", "error_message": str(e) }
+                    data={ "status": "FAILED", "error_message": sanitize_error(e) }
                 )
             else:
                 logger.info(f"Skipping — job already {current.status if current else 'missing'}", extra={"job_id": job_id})
@@ -233,6 +372,7 @@ async def get_job_status(job_id: str):
             "title": job.title,
             "platform": job.platform,
             "thumbnail_url": job.thumbnail_url,
+            "url": job.url,
             "views": int(job.views) if job.views else 0,
             "likes": int(job.likes) if job.likes else 0,
             "comments": int(job.comments) if job.comments else 0,

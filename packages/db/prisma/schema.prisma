@@ -22,6 +22,13 @@ model User {
   api_credits Int       @default(10)
   created_at  DateTime  @default(now())
   sessions    Session[]
+  name        String?
+  avatar_url  String?
+  google_id   String?   @unique
+  location    String?
+  region      String?
+  timezone    String?
+  last_login  DateTime?
 }
 
 model Session {

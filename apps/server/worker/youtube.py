@@ -19,6 +19,7 @@ from groq import Groq
 import requests
 from http.cookiejar import MozillaCookieJar
 from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type
+from core.config import GROQ_TRANSLATION_MODEL
 
 load_dotenv()
 
@@ -72,7 +73,7 @@ def get_translation_with_groq(transcript: str) -> str | None:
         print(f"Translating chunk {i+1}/{len(chunks)}...")
         try:
             response = groqClient.chat.completions.create(
-                model="qwen-2.5-32b",
+                model=GROQ_TRANSLATION_MODEL,
                 messages=[
                     {
                         "role": "system",

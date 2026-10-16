@@ -1,7 +1,9 @@
 'use client';
 
-import React, { useRef, useState } from 'react';
+import React, { useRef, useState, useEffect } from 'react';
+import { Download, Music, Film, Sparkles, X, Loader2, AlertCircle } from 'lucide-react';
 import { MetricData } from '../types';
+import { getVideoDownloadFormats, getVideoDownloadUrl, VideoDownloadFormatsResponse, VideoFormatOption } from '@/lib/api';
 
 interface StagePaneProps {
   monitorMode: 'single' | 'dual';
@@ -23,6 +25,9 @@ interface StagePaneProps {
   subStatusA?: string | null;
   statusB?: string;
   subStatusB?: string | null;
+  urlA?: string;
+  urlB?: string;
+  autoOpenDownload?: boolean;
 }
 
 const STAGES = [
@@ -84,6 +89,225 @@ function formatTimecode(seconds: number) {
   return `${h.toString().padStart(2, '0')}:${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}:${f.toString().padStart(2, '0')}`;
 }
 
+function ErrorOverlay({ message }: { message: string }) {
+  return (
+    <div className="absolute inset-0 bg-black/85 backdrop-blur-md flex flex-col items-center justify-center p-6 z-30 select-none">
+      <div className="w-12 h-12 rounded-2xl bg-rose-500/10 border border-rose-500/20 flex items-center justify-center mb-3 shadow-[0_0_20px_rgba(244,63,94,0.15)]">
+        <svg className="w-6 h-6 text-rose-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+        </svg>
+      </div>
+      <h4 className="text-white font-medium text-sm tracking-wide mb-1.5">Analysis Notice</h4>
+      <p className="text-zinc-300 text-xs max-w-sm text-center leading-relaxed mb-3">{message}</p>
+      <span className="text-[10px] text-zinc-400 uppercase tracking-widest font-mono bg-zinc-900 border border-zinc-800 px-2.5 py-1 rounded">Please verify link or try another video</span>
+    </div>
+  );
+}
+
+function FormatCard({ format, videoUrl, videoTitle }: { format: VideoFormatOption; videoUrl: string; videoTitle?: string }) {
+  const downloadHref = getVideoDownloadUrl(videoUrl, format.format_id, format.ext, videoTitle);
+
+  return (
+    <div className="flex items-center justify-between p-2.5 rounded-lg bg-[#18181c] border border-[#27272a] hover:border-zinc-700 transition-colors">
+      <div className="flex items-center gap-3 min-w-0">
+        <span className="text-[10px] font-mono font-bold uppercase px-2 py-0.5 rounded bg-zinc-900 border border-zinc-700 text-zinc-300 shrink-0">
+          {format.quality}
+        </span>
+        <div className="min-w-0">
+          <div className="text-xs font-medium text-white truncate">{format.label}</div>
+          <div className="text-[10px] text-zinc-400 font-mono mt-0.5 flex items-center gap-2">
+            <span className="uppercase">{format.ext}</span>
+            {format.filesize_mb && <span>• ~{format.filesize_mb} MB</span>}
+            {format.has_audio && format.has_video && (
+              <span className="text-emerald-400 font-semibold">• Audio Included</span>
+            )}
+            {!format.has_audio && format.has_video && (
+              <span className="text-amber-400 font-semibold">• Visual Only</span>
+            )}
+            {format.has_audio && !format.has_video && (
+              <span className="text-sky-400 font-semibold">• Master Audio</span>
+            )}
+          </div>
+        </div>
+      </div>
+      <a
+        href={downloadHref}
+        download
+        target="_blank"
+        rel="noopener noreferrer"
+        className="ml-3 px-3 py-1.5 rounded-md bg-[#3b82f6] hover:bg-[#2563eb] text-white text-xs font-medium flex items-center gap-1.5 shrink-0 transition-colors shadow-sm"
+      >
+        <Download size={13} />
+        Download
+      </a>
+    </div>
+  );
+}
+
+function DownloadModal({
+  isOpen,
+  onClose,
+  targetLabel,
+  url,
+}: {
+  isOpen: boolean;
+  onClose: () => void;
+  targetLabel: string;
+  url?: string;
+}) {
+  const [loading, setLoading] = useState(false);
+  const [data, setData] = useState<VideoDownloadFormatsResponse | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!isOpen || !url) return;
+    let cancelled = false;
+    setLoading(true);
+    setError(null);
+    setData(null);
+
+    getVideoDownloadFormats(url)
+      .then((res) => {
+        if (!cancelled) setData(res);
+      })
+      .catch((err) => {
+        if (!cancelled) setError(err.message || 'Failed to probe video download formats');
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [isOpen, url]);
+
+  if (!isOpen) return null;
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm">
+      <div className="relative w-full max-w-xl bg-[#121215] border border-[#27272a] rounded-xl shadow-2xl overflow-hidden flex flex-col max-h-[85vh]">
+        
+        {/* Header */}
+        <div className="flex items-center justify-between p-4 border-b border-[#27272a] bg-[#18181c]">
+          <div className="flex items-center gap-2.5">
+            <div className="w-8 h-8 rounded-lg bg-[#3b82f6]/10 border border-[#3b82f6]/30 flex items-center justify-center text-[#3b82f6]">
+              <Download size={18} />
+            </div>
+            <div>
+              <h3 className="text-sm font-semibold text-white tracking-wide flex items-center gap-2">
+                Download Media Streams
+                <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-zinc-800 text-zinc-400 border border-zinc-700">
+                  {targetLabel}
+                </span>
+              </h3>
+              <p className="text-[11px] text-zinc-400">Zero-server-buffer direct stream from platform CDN</p>
+            </div>
+          </div>
+          <button
+            onClick={onClose}
+            className="p-1.5 rounded-lg text-zinc-400 hover:text-white hover:bg-zinc-800 transition-colors"
+          >
+            <X size={18} />
+          </button>
+        </div>
+
+        {/* Content Body */}
+        <div className="p-4 overflow-y-auto space-y-4">
+          {!url ? (
+            <div className="py-8 text-center text-xs text-zinc-500 font-mono">
+              No source URL found for this video.
+            </div>
+          ) : loading ? (
+            <div className="py-12 flex flex-col items-center justify-center gap-3">
+              <Loader2 className="w-7 h-7 text-[#3b82f6] animate-spin" />
+              <p className="text-xs text-zinc-400 font-mono">Extracting direct stream formats (up to 4K & studio audio)...</p>
+            </div>
+          ) : error ? (
+            <div className="p-4 rounded-lg bg-rose-500/10 border border-rose-500/20 text-rose-300 text-xs flex items-start gap-2.5">
+              <AlertCircle size={16} className="text-rose-400 shrink-0 mt-0.5" />
+              <div>
+                <p className="font-semibold mb-1">Extraction Notice</p>
+                <p className="leading-relaxed opacity-90">{error}</p>
+              </div>
+            </div>
+          ) : data ? (
+            <div className="space-y-4">
+              {/* Media Title Preview */}
+              <div className="p-3 rounded-lg bg-[#09090b] border border-[#27272a] flex items-center gap-3">
+                {data.thumbnail && (
+                  <img src={data.thumbnail} alt="Thumbnail" className="w-16 h-10 object-cover rounded shrink-0 border border-zinc-800" />
+                )}
+                <div className="min-w-0 flex-1">
+                  <div className="text-xs font-medium text-white truncate" title={data.title}>{data.title}</div>
+                  <div className="text-[10px] text-zinc-500 font-mono mt-0.5 flex items-center gap-2">
+                    <span>{data.formats.length} Profiles Available</span>
+                    {data.duration && <span>• {Math.floor(data.duration / 60)}m {data.duration % 60}s</span>}
+                  </div>
+                </div>
+              </div>
+
+              {/* Formats Group 1: Studio Audio */}
+              {data.formats.some(f => f.type === 'audio') && (
+                <div>
+                  <div className="text-[11px] font-mono font-semibold text-zinc-400 uppercase tracking-wider mb-2 flex items-center gap-1.5">
+                    <Music size={13} className="text-[#38bdf8]" /> Studio & Master Audio
+                  </div>
+                  <div className="space-y-1.5">
+                    {data.formats.filter(f => f.type === 'audio').map((fmt) => (
+                      <FormatCard key={fmt.format_id} format={fmt} videoUrl={url} videoTitle={data.title} />
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Formats Group 2: Combined MP4 Video + Audio */}
+              {data.formats.some(f => f.type === 'video_combined') && (
+                <div>
+                  <div className="text-[11px] font-mono font-semibold text-emerald-400 uppercase tracking-wider mb-2 flex items-center gap-1.5">
+                    <Film size={13} className="text-[#10b981]" /> Full Video Streams (Video + Audio Included)
+                  </div>
+                  <div className="space-y-1.5">
+                    {data.formats.filter(f => f.type === 'video_combined').map((fmt) => (
+                      <FormatCard key={fmt.format_id} format={fmt} videoUrl={url} videoTitle={data.title} />
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Formats Group 3: Ultra HD Visual Streams (Up to 4K) */}
+              {data.formats.some(f => f.type === 'video_hd') && (
+                <div>
+                  <div className="text-[11px] font-mono font-semibold text-amber-400 uppercase tracking-wider mb-2 flex items-center gap-1.5">
+                    <Sparkles size={13} className="text-amber-400" /> Visual-Only Master Streams (B-Roll / No Audio)
+                  </div>
+                  <div className="space-y-1.5">
+                    {data.formats.filter(f => f.type === 'video_hd').map((fmt) => (
+                      <FormatCard key={fmt.format_id} format={fmt} videoUrl={url} videoTitle={data.title} />
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+          ) : null}
+        </div>
+
+        {/* Footer */}
+        <div className="p-3 border-t border-[#27272a] bg-[#18181c] flex items-center justify-between text-[11px] text-zinc-500 font-mono">
+          <span>Direct browser streaming download</span>
+          <button
+            onClick={onClose}
+            className="px-3 py-1 rounded bg-[#27272a] hover:bg-[#3f3f46] text-white transition-colors"
+          >
+            Close
+          </button>
+        </div>
+
+      </div>
+    </div>
+  );
+}
+
 export default function StagePane({
   monitorMode,
   isPlaying,
@@ -103,7 +327,10 @@ export default function StagePane({
   statusA = 'NONE',
   subStatusA,
   statusB = 'NONE',
-  subStatusB
+  subStatusB,
+  urlA,
+  urlB,
+  autoOpenDownload
 }: StagePaneProps) {
   const timelineRef = useRef<HTMLDivElement>(null);
   
@@ -111,6 +338,35 @@ export default function StagePane({
   const [videoBUrl, setVideoBUrl] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [ingestError, setIngestError] = useState('');
+
+  const [downloadModalState, setDownloadModalState] = useState<{
+    isOpen: boolean;
+    target: 'A' | 'B';
+    url?: string;
+  }>({
+    isOpen: false,
+    target: 'A',
+  });
+
+  const openDownload = (target: 'A' | 'B') => {
+    if (process.env.NEXT_PUBLIC_ENABLE_DOWNLOADS !== 'true') return;
+    const targetUrl = target === 'A' ? urlA : urlB;
+    setDownloadModalState({
+      isOpen: true,
+      target,
+      url: targetUrl,
+    });
+  };
+
+  useEffect(() => {
+    if (process.env.NEXT_PUBLIC_ENABLE_DOWNLOADS === 'true' && autoOpenDownload && urlA) {
+      openDownload('A');
+    }
+  }, [autoOpenDownload, urlA]);
+
+  const closeDownload = () => {
+    setDownloadModalState(prev => ({ ...prev, isOpen: false }));
+  };
 
   const handleAddSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -182,23 +438,23 @@ export default function StagePane({
                  )}
                  <div className="absolute bottom-2 right-2 bg-black/50 border border-white/10 backdrop-blur-md px-2 py-0.5 rounded-md text-[9px] sm:text-[10px] text-white/90 font-medium tracking-wide z-10 shadow-sm">{currentLabel}</div>
                  
+                 {/* Download Trigger Button */}
+                 {process.env.NEXT_PUBLIC_ENABLE_DOWNLOADS === 'true' && ((isFirstPlayerA ? urlA : (urlB || urlA))) && (
+                   <button
+                     onClick={(e) => {
+                       e.stopPropagation();
+                       openDownload(isFirstPlayerA ? 'A' : 'B');
+                     }}
+                     className="absolute top-2 right-2 bg-black/60 hover:bg-black/90 border border-white/10 hover:border-white/30 backdrop-blur-md p-1.5 rounded-md text-white/80 hover:text-white z-20 transition-colors shadow-sm"
+                     title={`Download ${currentLabel} Media Streams`}
+                   >
+                     <Download size={13} />
+                   </button>
+                 )}
+
                  {/* Error Overlay */}
-                 {isFirstPlayerA && errorA && (
-                   <div className="absolute inset-0 bg-[#f43f5e]/10 backdrop-blur-[2px] flex flex-col items-center justify-center p-4 z-30">
-                     <div className="w-10 h-10 rounded-full bg-[#f43f5e]/20 border border-[#f43f5e]/50 flex items-center justify-center mb-2">
-                       <svg className="w-5 h-5 text-[#f43f5e]" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" /></svg>
-                     </div>
-                     <span className="text-[#f43f5e] font-semibold text-xs text-center">{errorA}</span>
-                   </div>
-                 )}
-                 {!isFirstPlayerA && errorB && (
-                   <div className="absolute inset-0 bg-[#f43f5e]/10 backdrop-blur-[2px] flex flex-col items-center justify-center p-4 z-30">
-                     <div className="w-10 h-10 rounded-full bg-[#f43f5e]/20 border border-[#f43f5e]/50 flex items-center justify-center mb-2">
-                       <svg className="w-5 h-5 text-[#f43f5e]" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" /></svg>
-                     </div>
-                     <span className="text-[#f43f5e] font-semibold text-xs text-center">{errorB}</span>
-                   </div>
-                 )}
+                 {isFirstPlayerA && errorA && <ErrorOverlay message={errorA} />}
+                 {!isFirstPlayerA && errorB && <ErrorOverlay message={errorB} />}
                  
                  {/* Processing Overlay */}
                  {isFirstPlayerA && ['PENDING', 'PROCESSING'].includes(statusA) && !errorA && (
@@ -231,15 +487,22 @@ export default function StagePane({
                 )}
                 <div className="absolute bottom-2 right-2 bg-black/50 border border-white/10 backdrop-blur-md px-2 py-0.5 rounded-md text-[9px] sm:text-[10px] text-white/90 font-medium tracking-wide z-10 shadow-sm">Video B</div>
                 
-                {/* Error Overlay */}
-                {errorB && (
-                  <div className="absolute inset-0 bg-[#f43f5e]/10 backdrop-blur-[2px] flex flex-col items-center justify-center p-4 z-30">
-                    <div className="w-10 h-10 rounded-full bg-[#f43f5e]/20 border border-[#f43f5e]/50 flex items-center justify-center mb-2">
-                      <svg className="w-5 h-5 text-[#f43f5e]" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" /></svg>
-                    </div>
-                    <span className="text-[#f43f5e] font-semibold text-xs text-center">{errorB}</span>
-                  </div>
+                {/* Download Trigger Button for Video B */}
+                {process.env.NEXT_PUBLIC_ENABLE_DOWNLOADS === 'true' && urlB && (
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      openDownload('B');
+                    }}
+                    className="absolute top-2 right-2 bg-black/60 hover:bg-black/90 border border-white/10 hover:border-white/30 backdrop-blur-md p-1.5 rounded-md text-white/80 hover:text-white z-20 transition-colors shadow-sm"
+                    title="Download Video B Media Streams"
+                  >
+                    <Download size={13} />
+                  </button>
                 )}
+
+                {/* Error Overlay */}
+                {errorB && <ErrorOverlay message={errorB} />}
 
                 {/* Processing Overlay */}
                 {['PENDING', 'PROCESSING'].includes(statusB) && !errorB && (
@@ -327,8 +590,18 @@ export default function StagePane({
           </div>
         </div>
         
-        {/* Speed Controls */}
-        <div className="flex items-center gap-2 justify-center sm:justify-end w-full sm:w-auto">
+        {/* Speed Controls & Media Download */}
+        <div className="flex items-center gap-2.5 justify-center sm:justify-end w-full sm:w-auto">
+           {((activeVideoId === 'A' ? urlA : urlB) || urlA) && (
+             <button
+                onClick={() => openDownload(activeVideoId === 'B' && urlB ? 'B' : 'A')}
+                className="flex items-center gap-1.5 px-3 py-1 text-[11px] sm:text-xs font-mono bg-[#18181c] border border-[#27272a] hover:border-[#3b82f6] text-zinc-300 hover:text-white rounded transition-colors shadow-sm"
+                title="Download video or studio-quality audio"
+             >
+                <Download size={13} className="text-[#3b82f6]" />
+                <span>DOWNLOAD</span>
+             </button>
+           )}
            {[1.0, 1.25, 1.5, 2.0].map(speed => (
              <button 
                 key={speed}
@@ -412,6 +685,16 @@ export default function StagePane({
 
          </div>
       </div>
+
+      {/* Media Download Format Modal */}
+      {process.env.NEXT_PUBLIC_ENABLE_DOWNLOADS === 'true' && (
+        <DownloadModal
+          isOpen={downloadModalState.isOpen}
+          onClose={closeDownload}
+          targetLabel={`Video ${downloadModalState.target}`}
+          url={downloadModalState.url}
+        />
+      )}
     </div>
   );
 }

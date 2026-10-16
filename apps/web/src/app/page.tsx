@@ -3,9 +3,9 @@
 import React, { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Sparkles, Video, History, Plus, Settings2, Play, CheckCircle2, ChevronDown, ClipboardPaste, X } from 'lucide-react';
-import { createSessionAction } from './actions';
-import { ingestVideo } from '@/lib/api';
+import { Sparkles, Video, History, Plus, Settings2, Play, CheckCircle2, ChevronDown, ClipboardPaste, X, Download } from 'lucide-react';
+import { createSessionAction, getUserDataAction, getHistoryAction, logoutAction } from './actions';
+import { ingestVideo, ingestDownloadOnly } from '@/lib/api';
 
 export default function HomeIngestionPage() {
   const router = useRouter();
@@ -52,17 +52,21 @@ export default function HomeIngestionPage() {
     "Finalizing Workspace..."
   ];
 
+  // User & Auth State
+  const [currentUser, setCurrentUser] = useState<{ id: string; email: string; name?: string | null; avatar_url?: string | null; api_credits: number } | null>(null);
+  const [showAuthModal, setShowAuthModal] = useState<boolean>(false);
+
   // History State
   const [history, setHistory] = useState<any[]>([]);
 
   useEffect(() => {
-    // Fetch real history on mount
-    import('./actions').then(m => {
-      m.getHistoryAction().then(data => setHistory(data)).catch(console.error);
-      m.getUserDataAction().then(user => {
-        if (user) setApiCredits(user.api_credits);
-      }).catch(console.error);
-    });
+    getHistoryAction().then(data => setHistory(data)).catch(console.error);
+    getUserDataAction().then(user => {
+      if (user) {
+        setCurrentUser(user);
+        setApiCredits(user.api_credits);
+      }
+    }).catch(console.error);
   }, []);
 
   const getPlatformBadge = (url: string) => {
@@ -73,11 +77,32 @@ export default function HomeIngestionPage() {
     if (url.includes('tiktok.com')) {
       return <div className="flex items-center gap-1 text-[#2dd4bf] font-bold text-[10px] bg-[#2dd4bf]/10 px-1.5 py-0.5 rounded border border-[#2dd4bf]/20"><svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="currentColor"><path d="M12.525.02c1.31-.02 2.61-.01 3.91-.02.08 1.53.63 3.09 1.75 4.17 1.12 1.11 2.7 1.62 4.24 1.79v4.03c-1.44-.05-2.89-.35-4.2-.97-.57-.26-1.1-.59-1.62-.93v7.2c0 1.63-.52 3.23-1.48 4.54-1.28 1.73-3.23 2.75-5.32 3-2.09.24-4.22-.31-5.91-1.59-1.52-1.16-2.58-2.88-2.92-4.78-.32-1.81.04-3.69.96-5.24 1.14-1.92 3.13-3.19 5.31-3.41v4.14c-1.35.21-2.57 1.05-3.21 2.22-.64 1.17-.67 2.65-.08 3.86.59 1.2 1.83 2.05 3.16 2.22 1.33.16 2.7-.27 3.65-1.19.93-.91 1.45-2.22 1.45-3.55v-15.48h3.58z"/></svg> TT</div>;
     }
+    if (url.includes('vimeo.com')) {
+      return <div className="flex items-center gap-1 text-[#00adef] font-bold text-[10px] bg-[#00adef]/10 px-1.5 py-0.5 rounded border border-[#00adef]/20">VIMEO</div>;
+    }
+    if (url.includes('loom.com')) {
+      return <div className="flex items-center gap-1 text-[#625df5] font-bold text-[10px] bg-[#625df5]/10 px-1.5 py-0.5 rounded border border-[#625df5]/20">LOOM</div>;
+    }
     if (url.includes('instagram.com')) {
       return <div className="flex items-center gap-1 text-[#f43f5e] font-bold text-[10px] bg-[#f43f5e]/10 px-1.5 py-0.5 rounded border border-[#f43f5e]/20"><svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}><rect x="2" y="2" width="20" height="20" rx="5" ry="5"></rect><path d="M16 11.37A4 4 0 1 1 12.63 8 4 4 0 0 1 16 11.37z"></path><line x1="17.5" y1="6.5" x2="17.51" y2="6.5"></line></svg> IG</div>;
     }
     if (url.includes('x.com') || url.includes('twitter.com')) {
       return <div className="flex items-center gap-1 text-white font-bold text-[10px] bg-white/10 px-1.5 py-0.5 rounded border border-white/20"><svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="currentColor"><path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z"/></svg> X</div>;
+    }
+    try {
+      if (url.startsWith('http://') || url.startsWith('https://')) {
+        const parsed = new URL(url);
+        const host = parsed.hostname.replace(/^www\./, '');
+        const domainParts = host.split('.');
+        const domainName = (domainParts.length > 1 ? domainParts[0] : host).toUpperCase();
+        return (
+          <div className="flex items-center gap-1 text-[#38bdf8] font-bold text-[10px] bg-[#38bdf8]/10 px-1.5 py-0.5 rounded border border-[#38bdf8]/20 tracking-wider">
+            {domainName}
+          </div>
+        );
+      }
+    } catch {
+      // Fallback to icon
     }
     return <Video size={18} className="text-[#3b82f6]/70" />;
   };
@@ -98,6 +123,13 @@ export default function HomeIngestionPage() {
       setError('Please provide the required video URLs.');
       return;
     }
+
+    // Intercept unauthenticated users
+    if (!currentUser) {
+      setShowAuthModal(true);
+      return;
+    }
+
     setError('');
     setIsProcessing(true);
     setPipelineStep(0);
@@ -132,7 +164,40 @@ export default function HomeIngestionPage() {
 
     } catch (err: any) {
       clearInterval(stepInterval);
-      setError(err.message || 'An error occurred during ingestion.');
+      if (err.message === 'UNAUTHORIZED') {
+        setShowAuthModal(true);
+      } else {
+        setError(err.message || 'An error occurred during ingestion.');
+      }
+      setIsProcessing(false);
+    }
+  };
+
+  const handleDirectDownload = async () => {
+    if (!urlA) {
+      setError('Please provide a video URL to download.');
+      return;
+    }
+
+    if (!currentUser) {
+      setShowAuthModal(true);
+      return;
+    }
+
+    setError('');
+    setIsProcessing(true);
+    setPipelineStep(0);
+
+    try {
+      const sessionId = await createSessionAction();
+      const res = await ingestDownloadOnly(urlA, sessionId, "A");
+      router.push(`/session/${sessionId}?jobA=${res.job_id}&download=true`);
+    } catch (err: any) {
+      if (err.message === 'UNAUTHORIZED') {
+        setShowAuthModal(true);
+      } else {
+        setError(err.message || 'Failed to initialize download session.');
+      }
       setIsProcessing(false);
     }
   };
@@ -175,12 +240,58 @@ export default function HomeIngestionPage() {
         </div>
 
         <div className="flex items-center gap-3">
-          {apiCredits !== null && (
-            <div className="hidden sm:flex items-center gap-1.5 px-3 py-1.5 bg-[#18181c] border border-[#27272a] rounded-md text-sm font-medium">
-              <span className="text-[#94a3b8]">Credits:</span>
-              <span className={apiCredits > 0 ? "text-[#10b981]" : "text-[#f43f5e]"}>{apiCredits}</span>
-            </div>
+          {currentUser ? (
+            <>
+              {apiCredits !== null && (
+                <div className="hidden sm:flex items-center gap-1.5 px-3 py-1.5 bg-[#18181c] border border-[#27272a] rounded-md text-xs font-medium">
+                  <span className="text-[#94a3b8]">Credits:</span>
+                  <span className={apiCredits > 0 ? "text-[#10b981] font-bold" : "text-[#f43f5e] font-bold"}>{apiCredits}</span>
+                </div>
+              )}
+              <div className="flex items-center gap-2 pl-1">
+                {currentUser.avatar_url ? (
+                  <img
+                    src={currentUser.avatar_url}
+                    alt={currentUser.name || "User Avatar"}
+                    className="w-8 h-8 rounded-full border border-[#27272a] object-cover"
+                  />
+                ) : (
+                  <div className="w-8 h-8 rounded-full bg-[#3b82f6]/20 text-[#3b82f6] border border-[#3b82f6]/40 flex items-center justify-center text-xs font-bold font-mono">
+                    {(currentUser.name || currentUser.email)[0].toUpperCase()}
+                  </div>
+                )}
+                <span className="hidden md:inline text-xs font-medium text-zinc-300 max-w-[120px] truncate">
+                  {currentUser.name || currentUser.email.split('@')[0]}
+                </span>
+                <button
+                  onClick={async () => {
+                    await logoutAction();
+                    setCurrentUser(null);
+                    setApiCredits(null);
+                    setHistory([]);
+                  }}
+                  className="px-2.5 py-1 text-xs text-[#94a3b8] hover:text-white hover:bg-[#27272a] border border-[#27272a] rounded transition-colors ml-1"
+                  title="Sign Out"
+                >
+                  Sign Out
+                </button>
+              </div>
+            </>
+          ) : (
+            <a
+              href="/api/auth/google"
+              className="flex items-center gap-2 px-3.5 py-1.5 bg-white hover:bg-neutral-100 text-neutral-900 font-semibold text-xs rounded-md shadow-sm transition-all hover:scale-[1.02]"
+            >
+              <svg className="w-3.5 h-3.5" viewBox="0 0 24 24">
+                <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" />
+                <path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" />
+                <path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.06H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.94l2.85-2.22.81-.63z" />
+                <path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.06l3.66 2.84c.87-2.6 3.3-4.52 6.16-4.52z" />
+              </svg>
+              <span>Sign in</span>
+            </a>
           )}
+
           <button
             onClick={() => setDrawerOpen(true)}
             className="flex items-center gap-2 px-3 py-1.5 bg-[#18181c] hover:bg-[#27272a] border border-[#27272a] hover:border-[#3b82f6]/50 rounded-md transition-colors text-sm font-medium text-white group"
@@ -327,10 +438,10 @@ export default function HomeIngestionPage() {
                 </button>
                 <button 
                   type="button" 
-                  onClick={() => { setMode('single'); setUrlA('https://www.tiktok.com/@tiktok/video/7106594312292453678'); setUrlB(''); }}
+                  onClick={() => { setMode('single'); setUrlA('https://vimeo.com/76979871'); setUrlB(''); }}
                   className="px-2 py-1 text-xs rounded border border-[#27272a] bg-[#18181c] text-[#94a3b8] hover:text-white hover:border-[#3b82f6] transition-colors"
                 >
-                  Viral TikTok
+                  Vimeo Showcase
                 </button>
               </div>
 
@@ -416,24 +527,39 @@ export default function HomeIngestionPage() {
                 </div>
               </details>
 
-              {/* Launch CTA */}
-              <button
-                type="submit"
-                disabled={isProcessing}
-                className="w-full mt-6 bg-white hover:bg-neutral-200 text-black font-semibold py-3.5 rounded-lg flex items-center justify-center gap-2 transition-all disabled:opacity-70 disabled:cursor-not-allowed group focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white relative overflow-hidden"
-              >
-                <span className="relative z-10 flex items-center gap-2">
-                  {isProcessing ? 'Initializing Workspace...' : 'Launch Ingestion Pipeline'}
-                  {!isProcessing && <Play size={18} className="group-hover:translate-x-1 transition-transform" />}
-                </span>
-                {!isProcessing && (
-                  <kbd className="absolute right-4 px-2 py-1 bg-black/10 rounded font-mono text-[10px] tracking-widest text-black/60 font-bold">⌘ ↵</kbd>
+              {/* Launch & Download CTAs */}
+              <div className="mt-6 flex flex-col sm:flex-row gap-3">
+                <button
+                  type="submit"
+                  disabled={isProcessing}
+                  className="flex-1 bg-white hover:bg-neutral-200 text-black font-semibold py-3.5 rounded-lg flex items-center justify-center gap-2 transition-all disabled:opacity-70 disabled:cursor-not-allowed group focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white relative overflow-hidden"
+                >
+                  <span className="relative z-10 flex items-center gap-2 text-sm">
+                    {isProcessing ? 'Initializing Workspace...' : 'Launch Ingestion Pipeline'}
+                    {!isProcessing && <Play size={16} className="group-hover:translate-x-1 transition-transform" />}
+                  </span>
+                  {!isProcessing && (
+                    <kbd className="hidden sm:inline-block absolute right-3 px-1.5 py-0.5 bg-black/10 rounded font-mono text-[9px] tracking-widest text-black/60 font-bold">⌘ ↵</kbd>
+                  )}
+                  {isProcessing && (
+                    <div className="absolute inset-0 -translate-x-full animate-[shimmer_1.5s_infinite] bg-gradient-to-r from-transparent via-black/10 to-transparent z-0"></div>
+                  )}
+                </button>
+
+                {process.env.NEXT_PUBLIC_ENABLE_DOWNLOADS === 'true' && (
+                  <button
+                    type="button"
+                    onClick={handleDirectDownload}
+                    disabled={isProcessing}
+                    title="Zero duration limit • Direct 4K & 48kHz audio download"
+                    className="px-5 py-3.5 bg-[#18181c] hover:bg-[#27272a] text-[#38bdf8] hover:text-white border border-[#38bdf8]/40 hover:border-[#38bdf8] font-semibold text-sm rounded-lg flex items-center justify-center gap-2 transition-all shadow-[0_0_15px_rgba(56,189,248,0.1)] group disabled:opacity-50"
+                  >
+                    <Download size={16} className="text-[#38bdf8] group-hover:scale-110 transition-transform" />
+                    <span>Download Media</span>
+                    <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-[#38bdf8]/10 text-[#38bdf8] border border-[#38bdf8]/30">No Limit</span>
+                  </button>
                 )}
-                {/* Loading Shimmer */}
-                {isProcessing && (
-                  <div className="absolute inset-0 -translate-x-full animate-[shimmer_1.5s_infinite] bg-gradient-to-r from-transparent via-black/10 to-transparent z-0"></div>
-                )}
-              </button>
+              </div>
             </form>
           </div>
 
@@ -583,6 +709,77 @@ export default function HomeIngestionPage() {
               </div>
             </motion.aside>
           </>
+        )}
+
+        {/* Google Authentication Modal Popup */}
+        {showAuthModal && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => setShowAuthModal(false)}
+              className="absolute inset-0 bg-black/80 backdrop-blur-md"
+            />
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95, y: 10 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: 10 }}
+              className="relative w-full max-w-md bg-[#121215] border border-[#27272a] rounded-2xl p-6 sm:p-8 shadow-2xl z-10 overflow-hidden"
+            >
+              {/* Close Button */}
+              <button
+                onClick={() => setShowAuthModal(false)}
+                className="absolute top-4 right-4 p-1.5 rounded-lg text-zinc-400 hover:text-white hover:bg-zinc-800/60 transition-colors"
+                title="Close"
+              >
+                <X size={18} />
+              </button>
+
+              <div className="flex flex-col items-center text-center">
+                <div className="w-14 h-14 rounded-2xl bg-gradient-to-br from-[#3b82f6]/20 to-[#c084fc]/20 border border-[#3b82f6]/30 flex items-center justify-center mb-5 shadow-lg shadow-[#3b82f6]/10">
+                  <svg className="w-7 h-7 text-[#3b82f6]" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M13 10V3L4 14h7v7l9-11h-7z" />
+                  </svg>
+                </div>
+
+                <h3 className="text-xl sm:text-2xl font-bold font-display text-white tracking-tight mb-2">
+                  Sign in to ReelMind
+                </h3>
+                <p className="text-sm text-zinc-400 mb-6 max-w-xs leading-relaxed">
+                  Log in with Google to launch video analysis, track retention drops, and receive <span className="text-[#10b981] font-semibold">10 free credits</span>.
+                </p>
+
+                <div className="w-full space-y-2.5 mb-6 text-left">
+                  <div className="flex items-center gap-3 p-2.5 rounded-lg bg-zinc-900/60 border border-zinc-800/80 text-xs text-zinc-300">
+                    <div className="w-5 h-5 rounded-full bg-[#10b981]/20 text-[#10b981] flex items-center justify-center shrink-0 text-[10px]">✓</div>
+                    <span>Instant multi-platform video ingestion</span>
+                  </div>
+                  <div className="flex items-center gap-3 p-2.5 rounded-lg bg-zinc-900/60 border border-zinc-800/80 text-xs text-zinc-300">
+                    <div className="w-5 h-5 rounded-full bg-[#10b981]/20 text-[#10b981] flex items-center justify-center shrink-0 text-[10px]">✓</div>
+                    <span>AI Copilot with RAG vector search</span>
+                  </div>
+                  <div className="flex items-center gap-3 p-2.5 rounded-lg bg-zinc-900/60 border border-zinc-800/80 text-xs text-zinc-300">
+                    <div className="w-5 h-5 rounded-full bg-[#10b981]/20 text-[#10b981] flex items-center justify-center shrink-0 text-[10px]">✓</div>
+                    <span>10 free video credits added to your account</span>
+                  </div>
+                </div>
+
+                <a
+                  href="/api/auth/google"
+                  className="w-full py-3 px-4 bg-white hover:bg-neutral-100 text-neutral-900 font-semibold text-sm rounded-xl flex items-center justify-center gap-3 transition-all shadow-lg hover:shadow-xl hover:scale-[1.01] active:scale-[0.99]"
+                >
+                  <svg className="w-4 h-4" viewBox="0 0 24 24">
+                    <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" />
+                    <path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" />
+                    <path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.06H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.94l2.85-2.22.81-.63z" />
+                    <path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.06l3.66 2.84c.87-2.6 3.3-4.52 6.16-4.52z" />
+                  </svg>
+                  <span>Continue with Google</span>
+                </a>
+              </div>
+            </motion.div>
+          </div>
         )}
       </AnimatePresence>
 

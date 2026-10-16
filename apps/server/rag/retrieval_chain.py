@@ -1,5 +1,6 @@
 from core.db import prisma_client as db
 from core.logging import get_logger
+from core.config import GROQ_CHAT_MODEL
 import os
 from langchain_groq import ChatGroq
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
@@ -84,7 +85,7 @@ async def get_chat_history(session_id: str):
         logger.error(f"Error in getting chat history: {e}", exc_info=True)
         return []
 llm = ChatGroq(
-    model="qwen/qwen3.6-27b",
+    model=GROQ_CHAT_MODEL,
     api_key=os.getenv("GROQ_API"),
     temperature=0.3,
     streaming=True,
