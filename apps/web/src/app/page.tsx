@@ -21,17 +21,17 @@ export default function HomeIngestionPage() {
   const [whisperModel, setWhisperModel] = useState<'large-v3' | 'medium.en'>('large-v3');
   const [chunkSize, setChunkSize] = useState<'128T' | '256T'>('128T');
   const [selectedFocus, setSelectedFocus] = useState<string[]>([
-    'Hook Retention',
-    'Speech Cadence',
-    'Viral Mechanics'
+    'Core Concepts',
+    'Key Takeaways',
+    'Topic Breakdown'
   ]);
 
   const FOCUS_OPTIONS = [
-    { id: 'Hook Retention', label: 'Hook Retention', activeClass: 'bg-[#3b82f6]/10 border-[#3b82f6]/50 text-[#3b82f6]' },
-    { id: 'Speech Cadence', label: 'Speech Cadence', activeClass: 'bg-[#3b82f6]/10 border-[#3b82f6]/50 text-[#3b82f6]' },
-    { id: 'Viral Mechanics', label: 'Viral Mechanics', activeClass: 'bg-[#3b82f6]/10 border-[#3b82f6]/50 text-[#3b82f6]' },
-    { id: 'CTA Impact', label: 'CTA Impact', activeClass: 'bg-[#3b82f6]/10 border-[#3b82f6]/50 text-[#3b82f6]' },
-    { id: 'Pacing & Dropoff', label: 'Pacing & Dropoff', activeClass: 'bg-[#3b82f6]/10 border-[#3b82f6]/50 text-[#3b82f6]' }
+    { id: 'Core Concepts', label: 'Core Concepts', activeClass: 'bg-[#3b82f6]/10 border-[#3b82f6]/50 text-[#3b82f6]' },
+    { id: 'Key Takeaways', label: 'Key Takeaways', activeClass: 'bg-[#3b82f6]/10 border-[#3b82f6]/50 text-[#3b82f6]' },
+    { id: 'Topic Breakdown', label: 'Topic Breakdown', activeClass: 'bg-[#3b82f6]/10 border-[#3b82f6]/50 text-[#3b82f6]' },
+    { id: 'Q&A Grounding', label: 'Q&A Grounding', activeClass: 'bg-[#3b82f6]/10 border-[#3b82f6]/50 text-[#3b82f6]' },
+    { id: 'Executive Summary', label: 'Executive Summary', activeClass: 'bg-[#3b82f6]/10 border-[#3b82f6]/50 text-[#3b82f6]' }
   ];
 
   const toggleFocus = (id: string) => {
@@ -47,7 +47,7 @@ export default function HomeIngestionPage() {
   const PIPELINE_LOGS = [
     "Fetching Stream Metadata & SRT...",
     "Running Whisper Audio Alignment...",
-    "Extracting Retention Drops & Hook Delta...",
+    "Structuring Knowledge Chunks & Topics...",
     "Vectorizing Jina v3 Embeddings...",
     "Finalizing Workspace..."
   ];
@@ -319,10 +319,10 @@ export default function HomeIngestionPage() {
         >
           <div className="text-center mb-8">
             <h1 className="font-display text-4xl sm:text-5xl font-bold tracking-tight text-white mb-3 shadow-black drop-shadow-md">
-              Ingestion <span className="text-[#3b82f6]">Hub</span>
+              Talk to Video <span className="text-[#3b82f6]">Hub</span>
             </h1>
             <p className="text-[#94a3b8] text-sm sm:text-base max-w-lg mx-auto">
-              Initialize a new performance analysis workspace. Paste your video links to extract retention mechanics, speech pacing, and AI intent classification.
+              Transform spoken-word videos into interactive AI knowledge workspaces. Paste any lecture, podcast, or tutorial link to extract speech, build semantic vectors, and converse directly with the speaker.
             </p>
           </div>
 
@@ -424,24 +424,24 @@ export default function HomeIngestionPage() {
                 <span className="text-xs font-medium text-[#94a3b8] uppercase tracking-wider">Examples:</span>
                 <button 
                   type="button" 
-                  onClick={() => { setMode('single'); setUrlA('https://x.com/elonmusk/status/1785507963363639598'); setUrlB(''); }}
+                  onClick={() => { setMode('single'); setUrlA('https://www.youtube.com/watch?v=tFb45gnuhII'); setUrlB(''); }}
                   className="px-2 py-1 text-xs rounded border border-[#27272a] bg-[#18181c] text-[#94a3b8] hover:text-white hover:border-[#3b82f6] transition-colors"
                 >
-                  Viral X Post
+                  Tech Keynote
                 </button>
                 <button 
                   type="button" 
-                  onClick={() => { setMode('compare'); setUrlA('https://x.com/cb_doge/status/1806322923727659473'); setUrlB('https://x.com/elonmusk/status/1785507963363639598'); }}
+                  onClick={() => { setMode('compare'); setUrlA('https://www.youtube.com/watch?v=jNQXAC9IVRw'); setUrlB('https://www.youtube.com/watch?v=tFb45gnuhII'); }}
                   className="px-2 py-1 text-xs rounded border border-[#27272a] bg-[#18181c] text-[#94a3b8] hover:text-white hover:border-[#3b82f6] transition-colors"
                 >
-                  X Compare
+                  Talk Compare
                 </button>
                 <button 
                   type="button" 
-                  onClick={() => { setMode('single'); setUrlA('https://vimeo.com/76979871'); setUrlB(''); }}
+                  onClick={() => { setMode('single'); setUrlA('https://www.youtube.com/watch?v=jNQXAC9IVRw'); setUrlB(''); }}
                   className="px-2 py-1 text-xs rounded border border-[#27272a] bg-[#18181c] text-[#94a3b8] hover:text-white hover:border-[#3b82f6] transition-colors"
                 >
-                  Vimeo Showcase
+                  19s Fast Demo
                 </button>
               </div>
 
@@ -502,7 +502,7 @@ export default function HomeIngestionPage() {
                   </div>
                   <div className="col-span-2 space-y-2 mt-1">
                     <div className="flex items-center justify-between">
-                      <label className="text-[10px] font-mono text-[#94a3b8] uppercase tracking-wider">Extraction Focus (Video Analytics)</label>
+                      <label className="text-[10px] font-mono text-[#94a3b8] uppercase tracking-wider">Analysis Focus (Spoken Knowledge)</label>
                       <span className="text-[10px] font-mono text-[#3b82f6]">{selectedFocus.length} Active</span>
                     </div>
                     <div className="flex flex-wrap gap-2">

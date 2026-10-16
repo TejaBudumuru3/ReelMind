@@ -17,6 +17,14 @@ def sanitize_error(exc: Exception | str) -> str:
     if "live stream" in raw_lower or "is_live" in raw_lower:
         return "Live streams are not supported. Please provide a link to a recorded video or clip."
 
+    # No Spoken Dialogue / Voice Detected (Silent animations, instrumental music)
+    if "no spoken voice" in raw_lower or "no speech" in raw_lower or "empty transcript" in raw_lower:
+        return "No spoken dialogue detected. ReelMind is designed for spoken-word videos (lectures, tutorials, podcasts). Please try a video with conversational speech."
+
+    # Payload Size Exceeded (Groq Whisper 25 MB Limit)
+    if "413" in raw_lower or "too large" in raw_lower or "request_too_large" in raw_lower or "exceeds the 25 mb" in raw_lower:
+        return "The audio payload for this video exceeds our 25 MB processing limit. Please use a shorter clip or a video with subtitle captions."
+
     # Platform Authentication / Login / Cookies Required (X, Instagram, Patreon, Members-only, etc.)
     auth_keywords = [
         "login required", "sign in", "requires authentication", "could not authenticate",
