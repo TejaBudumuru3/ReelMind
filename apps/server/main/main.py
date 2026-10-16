@@ -50,7 +50,7 @@ app = FastAPI(lifespan=lifespan)
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
-qstash_client = QStash(QSTASH_TOKEN)
+qstash_client = QStash(QSTASH_TOKEN, base_url=QSTASH_URL.rstrip('/') if QSTASH_URL else None)
 receiver = Receiver(
     current_signing_key=QSTASH_CURRENT_SIGNING_KEY,
     next_signing_key=QSTASH_NEXT_SIGNING_KEY
