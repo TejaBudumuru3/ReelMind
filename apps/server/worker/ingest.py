@@ -97,6 +97,112 @@ def extract_social_metadata(info: dict) -> dict:
         return {"views": 0, "likes": 0, "comments": 0, "engagement_rate": Decimal("0.00")}
 
 
+def extract_x_fxtwitter_info(url: str) -> tuple[dict, dict] | None:
+    """
+    Extracts video metadata and direct CDN media URL from an X (Twitter) post
+    using FixTweet / FxTwitter syndication API.
+    Bypasses datacenter ASN IP blocking, user login cookies, and Twitter API keys.
+    Returns (metadata, audio_info) or None if not an X post.
+    """
+    match = re.search(r'(?:twitter\.com|x\.com)/(?:#!/)?([^/?#]+)/status(?:es)?/(\d+)', url)
+    if not match:
+        return None
+
+    username = match.group(1)
+    tweet_id = match.group(2)
+    api_url = f"https://api.fxtwitter.com/{username}/status/{tweet_id}"
+
+    try:
+        with httpx.Client(timeout=20.0) as client:
+            res = client.get(
+                api_url,
+                headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"}
+            )
+            if res.status_code != 200:
+                logger.warning(f"FxTwitter API returned status {res.status_code} for {api_url}")
+                return None
+
+            data = res.json()
+            tweet = data.get("tweet")
+            if not tweet:
+                return None
+
+            media = tweet.get("media") or {}
+            videos = media.get("videos") or []
+            if not videos:
+                all_media = media.get("all") or []
+                videos = [m for m in all_media if m.get("type") in ("video", "gif")]
+
+            if not videos:
+                raise ValueError("No video found in this X post. ReelMind requires an X post containing video or audio dialogue.")
+
+            # Select best bitrate MP4 or primary video url
+            best_video = videos[0]
+            video_url = best_video.get("url")
+            
+            variants = best_video.get("variants") or best_video.get("formats") or []
+            mp4_variants = [v for v in variants if "mp4" in (v.get("content_type") or v.get("container") or "")]
+            if mp4_variants:
+                mp4_variants.sort(key=lambda x: x.get("bitrate") or 0, reverse=True)
+                video_url = mp4_variants[0].get("url") or video_url
+
+            views = tweet.get("views") or 0
+            likes = tweet.get("likes") or 0
+            comments = tweet.get("replies") or 0
+            engagement_rate = 0.00
+            if views > 0:
+                engagement_rate = round(((likes + comments) / views) * 100, 2)
+
+            duration = int(best_video.get("duration") or 0)
+            text = (tweet.get("text") or "").strip()
+            hashtags = re.findall(r"#\w+", text)
+
+            author = tweet.get("author") or {}
+            creator = author.get("name") or author.get("screen_name") or username
+
+            created_timestamp = tweet.get("created_timestamp")
+            upload_date = ""
+            if created_timestamp:
+                upload_date = datetime.fromtimestamp(created_timestamp).strftime("%Y%m%d")
+
+            title = text if text else f"Post by @{author.get('screen_name') or username}"
+            if len(title) > 100:
+                title = title[:97] + "..."
+
+            metadata = {
+                "views": views,
+                "likes": likes,
+                "comments": comments,
+                "engagement_rate": float(engagement_rate),
+                "hashtags": hashtags,
+                "title": title,
+                "creator": creator,
+                "follower_count": 0,
+                "duration": duration,
+                "upload_date": upload_date,
+                "thumbnail_url": best_video.get("thumbnail_url"),
+                "id": str(tweet_id),
+                "platform": "Twitter"
+            }
+
+            info = {
+                "url": video_url,
+                "ext": "mp4",
+                "protocol": "https",
+                "duration": duration,
+                "http_headers": {
+                    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
+                }
+            }
+
+            return metadata, info
+
+    except ValueError:
+        raise
+    except Exception as e:
+        logger.warning(f"FxTwitter extraction error for {url}: {e}")
+        return None
+
 
 _COOKIE_FILE_PATH = None
 
@@ -554,39 +660,61 @@ async def async_pipeline_link_to_text(job_id: str, url: str):
 
             if (not yt_id) or fallback_to_ytdlp:
                 # =====================================================
-                # NON-YOUTUBE PATH: Instagram, X, Facebook via yt-dlp
+                # NON-YOUTUBE PATH: X (via FxTwitter) or IG/FB (via yt-dlp)
                 # =====================================================
-                print(f"🔵 Using yt-dlp path for: {url}")
-                ydl_options = get_secure_ydl_opts()
-                info = None
-                try:
-                    with yt_dlp.YoutubeDL(ydl_options) as ydl:
-                        info = ydl.extract_info(url=url, download=False)
-                except Exception as e:
-                    print(f"⚠️ Primary yt-dlp metadata extraction failed: {e}")
-                    if 'proxy' in ydl_options:
-                        print("🔄 Retrying yt-dlp metadata extraction WITHOUT proxy...")
-                        fallback_options = ydl_options.copy()
-                        fallback_options.pop('proxy', None)
-                        try:
-                            with yt_dlp.YoutubeDL(fallback_options) as ydl:
-                                info = ydl.extract_info(url=url, download=False)
-                        except Exception as fe:
-                            print(f"❌ Fallback yt-dlp metadata extraction also failed: {fe}")
-                            raise fe
-                    else:
-                        raise e
-                
-                under_limit = get_audio_limit(info)
-                if under_limit.get('limit') == False:
-                    await db.job.update(
-                        where={"id": job_id},
-                        data={"status": 'FAILED', "error_message": f"Video duration is {under_limit.get('duration')} seconds", "updated_at": datetime.now()}
-                    )
-                    await db.execute_raw(f"SELECT pg_notify('job_updates', '{job_id}')")
-                    raise Exception("Video duration exceeded")
+                fx_result = None
+                if not yt_id:
+                    try:
+                        fx_result = extract_x_fxtwitter_info(url)
+                    except ValueError as ve:
+                        # Specific user-actionable error (e.g. text/image-only tweet without video)
+                        raise ve
+                    except Exception as fxe:
+                        logger.warning(f"FxTwitter direct extraction failed, falling back to yt-dlp: {fxe}")
 
-                metadata = extract_social_metadata(info)
+                if fx_result:
+                    print(f"🐦 Successfully extracted X/Twitter video via FxTwitter syndication API: {url}")
+                    metadata, info = fx_result
+                    if metadata.get('duration', 0) > 900:
+                        await db.job.update(
+                            where={"id": job_id},
+                            data={"status": 'FAILED', "error_message": f"Video duration is {metadata.get('duration')} seconds", "updated_at": datetime.now()}
+                        )
+                        await db.execute_raw(f"SELECT pg_notify('job_updates', '{job_id}')")
+                        raise Exception("Video duration exceeded")
+                else:
+                    print(f"🔵 Using yt-dlp path for: {url}")
+                    ydl_options = get_secure_ydl_opts()
+                    info = None
+                    try:
+                        with yt_dlp.YoutubeDL(ydl_options) as ydl:
+                            info = ydl.extract_info(url=url, download=False)
+                    except Exception as e:
+                        print(f"⚠️ Primary yt-dlp metadata extraction failed: {e}")
+                        if 'proxy' in ydl_options:
+                            print("🔄 Retrying yt-dlp metadata extraction WITHOUT proxy...")
+                            fallback_options = ydl_options.copy()
+                            fallback_options.pop('proxy', None)
+                            try:
+                                with yt_dlp.YoutubeDL(fallback_options) as ydl:
+                                    info = ydl.extract_info(url=url, download=False)
+                            except Exception as fe:
+                                print(f"❌ Fallback yt-dlp metadata extraction also failed: {fe}")
+                                raise fe
+                        else:
+                            raise e
+                    
+                    under_limit = get_audio_limit(info)
+                    if under_limit.get('limit') == False:
+                        await db.job.update(
+                            where={"id": job_id},
+                            data={"status": 'FAILED', "error_message": f"Video duration is {under_limit.get('duration')} seconds", "updated_at": datetime.now()}
+                        )
+                        await db.execute_raw(f"SELECT pg_notify('job_updates', '{job_id}')")
+                        raise Exception("Video duration exceeded")
+
+                    metadata = extract_social_metadata(info)
+
                 video_id = metadata.get('id')
                 
                 if video_id:

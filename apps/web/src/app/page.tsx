@@ -42,15 +42,7 @@ export default function HomeIngestionPage() {
 
   const [apiCredits, setApiCredits] = useState<number | null>(null);
 
-  // Pipeline Logs
-  const [pipelineStep, setPipelineStep] = useState<number>(0);
-  const PIPELINE_LOGS = [
-    "Fetching Stream Metadata & SRT...",
-    "Running Whisper Audio Alignment...",
-    "Structuring Knowledge Chunks & Topics...",
-    "Vectorizing Jina v3 Embeddings...",
-    "Finalizing Workspace..."
-  ];
+
 
   // User & Auth State
   const [currentUser, setCurrentUser] = useState<{ id: string; email: string; name?: string | null; avatar_url?: string | null; api_credits: number } | null>(null);
@@ -132,12 +124,6 @@ export default function HomeIngestionPage() {
 
     setError('');
     setIsProcessing(true);
-    setPipelineStep(0);
-
-    // Simulate modal processing steps
-    const stepInterval = setInterval(() => {
-      setPipelineStep(prev => prev < PIPELINE_LOGS.length - 1 ? prev + 1 : prev);
-    }, 600);
 
     try {
       // Execute Real Backend Pipeline
@@ -155,15 +141,8 @@ export default function HomeIngestionPage() {
         query = `?jobA=${results[0].job_id}`;
       }
 
-      clearInterval(stepInterval);
-      setPipelineStep(PIPELINE_LOGS.length - 1);
-
-      setTimeout(() => {
-        router.push(`/session/${sessionId}${query}`);
-      }, 500); // Brief delay to show completion
-
+      router.push(`/session/${sessionId}${query}`);
     } catch (err: any) {
-      clearInterval(stepInterval);
       if (err.message === 'UNAUTHORIZED') {
         setShowAuthModal(true);
       } else {
@@ -186,7 +165,6 @@ export default function HomeIngestionPage() {
 
     setError('');
     setIsProcessing(true);
-    setPipelineStep(0);
 
     try {
       const sessionId = await createSessionAction();
@@ -610,28 +588,17 @@ export default function HomeIngestionPage() {
             role="dialog"
             aria-modal="true"
           >
-            <div className="w-full max-w-md bg-[#121215] border border-[#27272a] rounded-2xl shadow-2xl p-8 flex flex-col items-center">
-              <div className="w-16 h-16 rounded-full bg-[#18181c] border border-[#27272a] flex items-center justify-center mb-6 relative overflow-hidden">
-                <div className="absolute inset-0 border-t-2 border-[#3b82f6] rounded-full animate-spin"></div>
-                <Video size={24} className="text-[#3b82f6]" />
+            <div className="w-full max-w-sm bg-[#121215] border border-[#27272a] rounded-2xl shadow-2xl p-7 flex flex-col items-center text-center">
+              <div className="w-14 h-14 rounded-2xl bg-[#3b82f6]/10 border border-[#3b82f6]/30 flex items-center justify-center mb-5 relative">
+                <div className="absolute inset-0 border-2 border-[#3b82f6] border-t-transparent rounded-2xl animate-spin"></div>
+                <Sparkles size={22} className="text-[#3b82f6]" />
               </div>
-              <h2 className="font-display text-xl font-bold text-white mb-2">Initializing Workspace</h2>
-              <p className="text-sm text-[#94a3b8] text-center mb-8">Please wait while the secure pipeline extracts your video data...</p>
-
-              <div className="w-full space-y-3 font-mono text-xs">
-                {PIPELINE_LOGS.map((log, idx) => {
-                  const isActive = idx === pipelineStep;
-                  const isDone = idx < pipelineStep;
-                  const isPending = idx > pipelineStep;
-                  return (
-                    <div key={idx} className={`flex items-center gap-3 transition-opacity duration-300 ${isPending ? 'opacity-30' : 'opacity-100'}`}>
-                      {isDone ? <CheckCircle2 size={14} className="text-[#10b981]" /> :
-                        isActive ? <div className="w-3.5 h-3.5 rounded-full border-2 border-[#3b82f6] border-t-transparent animate-spin"></div> :
-                          <div className="w-3.5 h-3.5 rounded-full border border-[#3f3f46]"></div>}
-                      <span className={`${isActive ? 'text-white' : isDone ? 'text-[#94a3b8]' : 'text-[#3f3f46]'}`}>{log}</span>
-                    </div>
-                  )
-                })}
+              <h2 className="font-display text-lg font-bold text-white mb-1.5">Dispatching Pipeline</h2>
+              <p className="text-xs text-[#94a3b8] mb-5 leading-relaxed">
+                Initializing session workspace and queueing video extraction workers...
+              </p>
+              <div className="w-full bg-[#18181c] rounded-full h-1.5 overflow-hidden border border-[#27272a]">
+                <div className="h-full bg-gradient-to-r from-[#3b82f6] to-[#c084fc] animate-pulse w-full"></div>
               </div>
             </div>
           </motion.div>
