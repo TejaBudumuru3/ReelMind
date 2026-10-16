@@ -248,11 +248,16 @@ def get_transcription_from_groq(info: dict) -> str | None:
             audio_bytes = get_audio_from_hls(info)
         else: 
             headers = info.get('http_headers', {})
-            
             with httpx.Client() as client:
                 response = client.get(media_url, headers=headers, timeout=120, follow_redirects=True)
                 audio_bytes = response.content
-    
+
+        if not audio_bytes:
+            raise Exception("Failed to retrieve audio stream from media source.")
+
+        # Groq Whisper has a hard 25 MB request limit
+        if len(audio_bytes) > 25 * 1024 * 1024:
+            raise Exception("Audio payload exceeds the 25 MB direct processing limit. Please use a shorter clip or a video with subtitle captions.")
 
         print("Calling Groq for transcription")
 
@@ -265,11 +270,17 @@ def get_transcription_from_groq(info: dict) -> str | None:
             response_format='json',
         )
         
+        transcript_text = getattr(transcription, 'text', '') or ""
+        transcript_text = transcript_text.strip()
+        
+        if not transcript_text:
+            raise Exception("No spoken voice detected in this media. ReelMind requires human speech or dialogue to build knowledge graphs.")
+
         print("Done with transcription")
-        return transcription.text
+        return transcript_text
     except Exception as e:
-        print(f"Transcription failed: {e}")
-        return None
+        logger.error(f"Transcription failed: {e}", exc_info=True)
+        raise e
 
 
 
@@ -635,19 +646,16 @@ async def async_pipeline_link_to_text(job_id: str, url: str):
 
                 await db.job.update(where={"id": job_id}, data={"sub_status": "TRANSCRIBING"})
                 transcription = get_transcription_from_groq(info)
-                if transcription:
-                    await db.job.update(where={"id": job_id}, data={"sub_status": "EMBEDDING"})
-                    await embedd_and_store(transcription, job_id, job.session_id)
-                    await db.job.update(
-                        where={"id": job_id},
-                        data={"status": 'COMPLETED', "sub_status": "READY", "updated_at": datetime.now(), "transcript": transcription}
-                    )
-                    logger.info("Pipeline completed successfully", extra={"job_id": job_id})
-                else:
-                    await db.job.update(
-                        where={"id": job_id},
-                        data={"status": 'FAILED', "error_message": "Transcription failed", "updated_at": datetime.now()}
-                    )
+                if not transcription:
+                    raise Exception("No spoken voice detected in this media. ReelMind requires spoken dialogue to build knowledge graphs.")
+
+                await db.job.update(where={"id": job_id}, data={"sub_status": "EMBEDDING"})
+                await embedd_and_store(transcription, job_id, job.session_id)
+                await db.job.update(
+                    where={"id": job_id},
+                    data={"status": 'COMPLETED', "sub_status": "READY", "updated_at": datetime.now(), "transcript": transcription}
+                )
+                logger.info("Pipeline completed successfully", extra={"job_id": job_id})
     except Exception as e:
         logger.error(f"Pipeline failed: {e}", exc_info=True, extra={"job_id": job_id})
         

@@ -87,7 +87,7 @@ export default function CopilotPane({
     setInput('');
   };
 
-  const presetChips = isCompare ? ["Hook Compare", "Retention", "Highlights"] : ["Key Highlights", "Analyze Retention", "Summarize"];
+  const presetChips = isCompare ? ["Key Differences", "Core Insights", "Summary"] : ["Key Highlights", "Core Insights", "Summarize Video"];
 
   return (
     <div className="w-full h-full flex flex-col bg-[#121215] border-l border-[#27272a] overflow-hidden relative">
@@ -123,7 +123,7 @@ export default function CopilotPane({
         {messages.length === 0 ? (
           <div className="h-full flex flex-col items-center justify-center text-center opacity-50">
              <svg className="w-12 h-12 text-[#94a3b8] mb-4" fill="none" stroke="currentColor" strokeWidth="1.5" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M9.75 3.104v5.714a2.25 2.25 0 01-.659 1.591L5 14.5M9.75 3.104c-.251.023-.501.05-.75.082m.75-.082a24.301 24.301 0 014.5 0m0 0v5.714c0 .597.237 1.17.659 1.591L19.8 15.3M14.25 3.104c.251.023.501.05.75.082M19.8 15.3l-1.57.393A9.065 9.065 0 0112 15a9.065 9.065 0 00-6.23-.693L5 14.5m14.8.8l1.402 1.402c1.232 1.232.65 3.318-1.067 3.611A48.309 48.309 0 0112 21c-2.792 0-5.484-.377-8.035-1.087-1.717-.293-2.3-2.379-1.067-3.61L5 14.5" /></svg>
-             <p className="text-sm text-[#94a3b8]">Ask anything about your timeline,<br/>pacing, or content hooks.</p>
+             <p className="text-sm text-[#94a3b8]">Ask anything about what the speaker said,<br/>core insights, or key takeaways.</p>
           </div>
         ) : (
           messages.map(msg => {

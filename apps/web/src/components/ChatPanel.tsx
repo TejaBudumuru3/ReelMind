@@ -91,7 +91,7 @@ export default function ChatPanel({ sessionId, hasVideos = true }: { sessionId: 
       <div style={styles.messageList}>
         {messages.length === 0 && (
           <div style={styles.emptyState}>
-            <p>Ready to analyze. Ask me anything about the engagement, hooks, or performance!</p>
+            <p>Ready to discuss. Ask me anything about what the speaker said, key concepts, or core takeaways!</p>
           </div>
         )}
         
