@@ -8,6 +8,7 @@ import json
 import asyncio
 import core.db
 from core.logging import get_logger
+from core.config import EMBEDDING_MODEL
 
 logger = get_logger("embeddings")
 
@@ -22,7 +23,7 @@ splitter =  RecursiveCharacterTextSplitter(
 
 embedder = JinaEmbeddings(
     jina_api_key=JINA_API_KEY,
-    model_name='jina-embeddings-v3'
+    model_name=EMBEDDING_MODEL
 )
 
 async def embedd_and_store(transcript: str, job_id: str, session_id: str):

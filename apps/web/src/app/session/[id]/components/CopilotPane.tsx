@@ -57,7 +57,7 @@ export default function CopilotPane({
   isStreaming,
   onSendMessage,
   onTimecodeClick,
-  modelName = "Qwen 3.6 27b Reasoning",
+  modelName = process.env.NEXT_PUBLIC_AI_MODEL_NAME || "Qwen 3.6 27b Reasoning",
   isCompare = false
 }: CopilotPaneProps) {
   const [input, setInput] = useState('');

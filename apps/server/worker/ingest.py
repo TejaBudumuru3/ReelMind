@@ -18,6 +18,8 @@ from dotenv import load_dotenv
 from googleapiclient.discovery import build
 from worker.embeddings import embedd_and_store
 from worker.youtube import extract_youtube_id, get_translation_with_groq, yt_client, get_youtube_metadata, fetch_youtube_transcript, fetch_transcript_via_proxy, fetch_transcript_via_innertube, fetch_transcript_via_ytdlp, fetch_transcript_via_public_apis
+from core.config import GROQ_WHISPER_MODEL
+from core.errors import sanitize_error
 
 
 
@@ -135,7 +137,7 @@ def get_cookies_file_path():
                     domains[d] = domains.get(d, 0) + 1
                     
         cookie_file.close()
-        print(f"🍪 Loaded {valid_lines} cookies from env: {dict(domains)}")
+        logger.info(f"Loaded {valid_lines} cookies from env: {dict(domains)}")
         
         _COOKIE_FILE_PATH = cookie_file.name
         return _COOKIE_FILE_PATH
@@ -258,7 +260,7 @@ def get_transcription_from_groq(info: dict) -> str | None:
 
         transcription = groqClient.audio.transcriptions.create(
             file=(file_name, audio_bytes),
-            model='whisper-large-v3',
+            model=GROQ_WHISPER_MODEL,
             language='en',
             response_format='json',
         )
@@ -650,11 +652,7 @@ async def async_pipeline_link_to_text(job_id: str, url: str):
         logger.error(f"Pipeline failed: {e}", exc_info=True, extra={"job_id": job_id})
         
         # Format user-friendly error messages
-        error_str = str(e)
-        if "Sign in to confirm you're not a bot" in error_str or "403" in error_str:
-            error_str = "YouTube is temporarily blocking the server (Bot Protection). Please try a different video or platform."
-        elif "Video duration exceeded" in error_str:
-            error_str = "Video is too long. Please use videos under 15 minutes."
+        error_str = sanitize_error(e)
             
         try:
             current = await db.job.find_unique(where={"id": job_id})

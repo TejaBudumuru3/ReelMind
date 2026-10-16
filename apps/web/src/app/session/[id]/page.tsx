@@ -19,6 +19,7 @@ export default function SessionWorkbenchPage({ params }: { params: Promise<{ id:
 
   const jobA = searchParams.get("jobA");
   const jobB = searchParams.get("jobB");
+  const autoDownload = searchParams.get("download") === "true";
 
   const [jobAStatus, setJobAStatus] = useState(jobA ? "PENDING" : "NONE");
   const [jobBStatus, setJobBStatus] = useState(jobB ? "PENDING" : "NONE");
@@ -421,6 +422,9 @@ export default function SessionWorkbenchPage({ params }: { params: Promise<{ id:
                   subStatusA={jobASubStatus}
                   statusB={jobBStatus}
                   subStatusB={jobBSubStatus}
+                  urlA={videoA?.url}
+                  urlB={videoB?.url}
+                  autoOpenDownload={autoDownload}
                 />
               </div>
             </Panel>
@@ -484,6 +488,15 @@ export default function SessionWorkbenchPage({ params }: { params: Promise<{ id:
                 activeVideoId={sessionState.activeVideoId}
                 onSelectVideo={(id) => setSessionState(p => ({ ...p, activeVideoId: id }))}
                 onAddVideoB={handleIngestB}
+                errorA={jobAError}
+                errorB={jobBError}
+                statusA={jobAStatus}
+                subStatusA={jobASubStatus}
+                statusB={jobBStatus}
+                subStatusB={jobBSubStatus}
+                urlA={videoA?.url}
+                urlB={videoB?.url}
+                autoOpenDownload={autoDownload}
               />
             </div>
           )}
