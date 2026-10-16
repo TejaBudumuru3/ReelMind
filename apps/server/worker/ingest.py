@@ -285,6 +285,15 @@ def get_secure_ydl_opts():
     return base_options
 
 
+def format_duration_limit_error(seconds: int) -> str:
+    """Formats raw seconds into a clean human-readable duration error message."""
+    total_sec = max(0, int(seconds or 0))
+    minutes = total_sec // 60
+    remaining_seconds = total_sec % 60
+    time_str = f"{minutes}m {remaining_seconds}s" if remaining_seconds else f"{minutes}m"
+    return f"Video duration ({time_str}) exceeds the 15-minute limit. Please provide a shorter video under 15 minutes."
+
+
 def get_audio_limit(info: dict) -> dict:
 
     duration = info.get('duration') or 0
@@ -451,8 +460,9 @@ async def async_pipeline_link_to_text(job_id: str, url: str):
                 if duration_seconds > 900:
                     await db.job.update(
                         where={"id": job_id},
-                        data={"status": 'FAILED', "error_message": f"Video duration is {duration_seconds} seconds", "updated_at": datetime.now()}
+                        data={"status": 'FAILED', "error_message": format_duration_limit_error(duration_seconds), "updated_at": datetime.now()}
                     )
+                    await db.execute_raw(f"SELECT pg_notify('job_updates', '{job_id}')")
                     raise Exception("Video duration exceeded")
 
                 text = f"{snippet.get('title', '')} {snippet.get('description', '')}"
@@ -676,9 +686,10 @@ async def async_pipeline_link_to_text(job_id: str, url: str):
                     print(f"🐦 Successfully extracted X/Twitter video via FxTwitter syndication API: {url}")
                     metadata, info = fx_result
                     if metadata.get('duration', 0) > 900:
+                        dur = int(metadata.get('duration') or 0)
                         await db.job.update(
                             where={"id": job_id},
-                            data={"status": 'FAILED', "error_message": f"Video duration is {metadata.get('duration')} seconds", "updated_at": datetime.now()}
+                            data={"status": 'FAILED', "error_message": format_duration_limit_error(dur), "updated_at": datetime.now()}
                         )
                         await db.execute_raw(f"SELECT pg_notify('job_updates', '{job_id}')")
                         raise Exception("Video duration exceeded")
@@ -706,9 +717,10 @@ async def async_pipeline_link_to_text(job_id: str, url: str):
                     
                     under_limit = get_audio_limit(info)
                     if under_limit.get('limit') == False:
+                        dur = int(under_limit.get('duration') or 0)
                         await db.job.update(
                             where={"id": job_id},
-                            data={"status": 'FAILED', "error_message": f"Video duration is {under_limit.get('duration')} seconds", "updated_at": datetime.now()}
+                            data={"status": 'FAILED', "error_message": format_duration_limit_error(dur), "updated_at": datetime.now()}
                         )
                         await db.execute_raw(f"SELECT pg_notify('job_updates', '{job_id}')")
                         raise Exception("Video duration exceeded")
@@ -803,10 +815,4 @@ async def async_pipeline_link_to_text(job_id: str, url: str):
             logger.error(f"Failed to update job status on error: {inner_e}", exc_info=True)
 
 
-
-
-if __name__ == "__main__":
-    asyncio.run(async_pipeline_link_to_text(
-        "ebbc98a2-9c4a-46cc-a910-af57714d5d4c", 
-        "https://x.com/keyfipyIasimIar/status/2056630939950948391?s=20"
-    ))
+

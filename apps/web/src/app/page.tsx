@@ -63,23 +63,17 @@ export default function HomeIngestionPage() {
 
   const getPlatformBadge = (url: string) => {
     if (!url) return <Video size={18} />;
-    if (url.includes('youtube.com') || url.includes('youtu.be')) {
-      return <div className="flex items-center gap-1 text-[#ef4444] font-bold text-[10px] bg-[#ef4444]/10 px-1.5 py-0.5 rounded border border-[#ef4444]/20"><svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="currentColor"><path d="M19.615 3.184c-3.604-.246-11.631-.245-15.23 0-3.897.266-4.356 2.62-4.385 8.816.029 6.185.484 8.549 4.385 8.816 3.6.245 11.626.246 15.23 0 3.897-.266 4.356-2.62 4.385-8.816-.029-6.185-.484-8.549-4.385-8.816zm-10.615 12.816v-8l8 3.993-8 4.007z"/></svg> YT</div>;
-    }
-    if (url.includes('tiktok.com')) {
-      return <div className="flex items-center gap-1 text-[#2dd4bf] font-bold text-[10px] bg-[#2dd4bf]/10 px-1.5 py-0.5 rounded border border-[#2dd4bf]/20"><svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="currentColor"><path d="M12.525.02c1.31-.02 2.61-.01 3.91-.02.08 1.53.63 3.09 1.75 4.17 1.12 1.11 2.7 1.62 4.24 1.79v4.03c-1.44-.05-2.89-.35-4.2-.97-.57-.26-1.1-.59-1.62-.93v7.2c0 1.63-.52 3.23-1.48 4.54-1.28 1.73-3.23 2.75-5.32 3-2.09.24-4.22-.31-5.91-1.59-1.52-1.16-2.58-2.88-2.92-4.78-.32-1.81.04-3.69.96-5.24 1.14-1.92 3.13-3.19 5.31-3.41v4.14c-1.35.21-2.57 1.05-3.21 2.22-.64 1.17-.67 2.65-.08 3.86.59 1.2 1.83 2.05 3.16 2.22 1.33.16 2.7-.27 3.65-1.19.93-.91 1.45-2.22 1.45-3.55v-15.48h3.58z"/></svg> TT</div>;
-    }
-    if (url.includes('vimeo.com')) {
-      return <div className="flex items-center gap-1 text-[#00adef] font-bold text-[10px] bg-[#00adef]/10 px-1.5 py-0.5 rounded border border-[#00adef]/20">VIMEO</div>;
-    }
-    if (url.includes('loom.com')) {
-      return <div className="flex items-center gap-1 text-[#625df5] font-bold text-[10px] bg-[#625df5]/10 px-1.5 py-0.5 rounded border border-[#625df5]/20">LOOM</div>;
+    if (url.includes('x.com') || url.includes('twitter.com')) {
+      return <div className="flex items-center gap-1 text-white font-bold text-[10px] bg-white/10 px-1.5 py-0.5 rounded border border-white/20"><svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="currentColor"><path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z"/></svg> X</div>;
     }
     if (url.includes('instagram.com')) {
       return <div className="flex items-center gap-1 text-[#f43f5e] font-bold text-[10px] bg-[#f43f5e]/10 px-1.5 py-0.5 rounded border border-[#f43f5e]/20"><svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}><rect x="2" y="2" width="20" height="20" rx="5" ry="5"></rect><path d="M16 11.37A4 4 0 1 1 12.63 8 4 4 0 0 1 16 11.37z"></path><line x1="17.5" y1="6.5" x2="17.51" y2="6.5"></line></svg> IG</div>;
     }
-    if (url.includes('x.com') || url.includes('twitter.com')) {
-      return <div className="flex items-center gap-1 text-white font-bold text-[10px] bg-white/10 px-1.5 py-0.5 rounded border border-white/20"><svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="currentColor"><path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z"/></svg> X</div>;
+    if (url.includes('tiktok.com')) {
+      return <div className="flex items-center gap-1 text-[#2dd4bf] font-bold text-[10px] bg-[#2dd4bf]/10 px-1.5 py-0.5 rounded border border-[#2dd4bf]/20"><svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="currentColor"><path d="M12.525.02c1.31-.02 2.61-.01 3.91-.02.08 1.53.63 3.09 1.75 4.17 1.12 1.11 2.7 1.62 4.24 1.79v4.03c-1.44-.05-2.89-.35-4.2-.97-.57-.26-1.1-.59-1.62-.93v7.2c0 1.63-.52 3.23-1.48 4.54-1.28 1.73-3.23 2.75-5.32 3-2.09.24-4.22-.31-5.91-1.59-1.52-1.16-2.58-2.88-2.92-4.78-.32-1.81.04-3.69.96-5.24 1.14-1.92 3.13-3.19 5.31-3.41v4.14c-1.35.21-2.57 1.05-3.21 2.22-.64 1.17-.67 2.65-.08 3.86.59 1.2 1.83 2.05 3.16 2.22 1.33.16 2.7-.27 3.65-1.19.93-.91 1.45-2.22 1.45-3.55v-15.48h3.58z"/></svg> TT</div>;
+    }
+    if (url.includes('youtube.com') || url.includes('youtu.be')) {
+      return <div className="flex items-center gap-1 text-[#ef4444] font-bold text-[10px] bg-[#ef4444]/10 px-1.5 py-0.5 rounded border border-[#ef4444]/20"><svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="currentColor"><path d="M19.615 3.184c-3.604-.246-11.631-.245-15.23 0-3.897.266-4.356 2.62-4.385 8.816.029 6.185.484 8.549 4.385 8.816 3.6.245 11.626.246 15.23 0 3.897-.266 4.356-2.62 4.385-8.816-.029-6.185-.484-8.549-4.385-8.816zm-10.615 12.816v-8l8 3.993-8 4.007z"/></svg> YT</div>;
     }
     try {
       if (url.startsWith('http://') || url.startsWith('https://')) {
@@ -300,7 +294,7 @@ export default function HomeIngestionPage() {
               Talk to Video <span className="text-[#3b82f6]">Hub</span>
             </h1>
             <p className="text-[#94a3b8] text-sm sm:text-base max-w-lg mx-auto">
-              Transform spoken-word videos into interactive AI knowledge workspaces. Paste any lecture, podcast, or tutorial link to extract speech, build semantic vectors, and converse directly with the speaker.
+              Transform spoken-word videos from X, Instagram Reels, and web media into interactive AI knowledge workspaces. Extract speech, build semantic vectors, and converse directly with the speaker.
             </p>
           </div>
 
@@ -402,24 +396,24 @@ export default function HomeIngestionPage() {
                 <span className="text-xs font-medium text-[#94a3b8] uppercase tracking-wider">Examples:</span>
                 <button 
                   type="button" 
-                  onClick={() => { setMode('single'); setUrlA('https://www.youtube.com/watch?v=tFb45gnuhII'); setUrlB(''); }}
+                  onClick={() => { setMode('single'); setUrlA('https://x.com/keyfipyIasimIar/status/2056630939950948391'); setUrlB(''); }}
                   className="px-2 py-1 text-xs rounded border border-[#27272a] bg-[#18181c] text-[#94a3b8] hover:text-white hover:border-[#3b82f6] transition-colors"
                 >
-                  Tech Keynote
-                </button>
-                <button 
-                  type="button" 
-                  onClick={() => { setMode('compare'); setUrlA('https://www.youtube.com/watch?v=jNQXAC9IVRw'); setUrlB('https://www.youtube.com/watch?v=tFb45gnuhII'); }}
-                  className="px-2 py-1 text-xs rounded border border-[#27272a] bg-[#18181c] text-[#94a3b8] hover:text-white hover:border-[#3b82f6] transition-colors"
-                >
-                  Talk Compare
+                  X Video Clip
                 </button>
                 <button 
                   type="button" 
                   onClick={() => { setMode('single'); setUrlA('https://www.youtube.com/watch?v=jNQXAC9IVRw'); setUrlB(''); }}
                   className="px-2 py-1 text-xs rounded border border-[#27272a] bg-[#18181c] text-[#94a3b8] hover:text-white hover:border-[#3b82f6] transition-colors"
                 >
-                  19s Fast Demo
+                  Short Clip (19s)
+                </button>
+                <button 
+                  type="button" 
+                  onClick={() => { setMode('compare'); setUrlA('https://x.com/keyfipyIasimIar/status/2056630939950948391'); setUrlB('https://www.youtube.com/watch?v=jNQXAC9IVRw'); }}
+                  className="px-2 py-1 text-xs rounded border border-[#27272a] bg-[#18181c] text-[#94a3b8] hover:text-white hover:border-[#3b82f6] transition-colors"
+                >
+                  X vs Clip Compare
                 </button>
               </div>
 
