@@ -138,6 +138,10 @@ async def fetch_youtube_transcript(yt_id: str, cookie_path: str | None) -> str |
         
         try:
             session = requests.Session()
+            session.headers.update({
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
+                'Accept-Language': 'en-US,en;q=0.9',
+            })
             if use_proxy and proxy_url:
                 session.proxies = {
                     "http": proxy_url,
