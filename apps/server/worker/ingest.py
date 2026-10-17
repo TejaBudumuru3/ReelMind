@@ -236,6 +236,8 @@ def resolve_canonical_url(url: str) -> str:
                 res = client.get(url, headers=headers)
             resolved = str(res.url)
             if resolved and resolved != url:
+                if "facebook.com/reel/" in resolved or "facebook.com/watch" in resolved:
+                    resolved = resolved.split("?")[0]
                 logger.info(f"🔗 Unshortened redirect URL: {url} -> {resolved}")
                 return resolved
     except Exception as e:
@@ -298,13 +300,8 @@ def get_secure_ydl_opts():
         'quiet': True,
         'no_warnings': True,
         'skip_download': True,
-        'extractor_args': {
-            'youtube': {
-                'player_client': ['android_embed', 'ios_embed', 'android_sdkless', 'tv_embedded']
-            }
-        },
         'http_headers': {
-            'User-Agent': 'Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.6422.113 Mobile Safari/537.36',
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
             'Accept-Language': 'en-US,en;q=0.9',
         }
     }
@@ -743,18 +740,18 @@ async def async_pipeline_link_to_text(job_id: str, url: str):
                             info = ydl.extract_info(url=url, download=False)
                     except Exception as e:
                         print(f"⚠️ Primary yt-dlp metadata extraction failed: {e}")
-                        if 'proxy' in ydl_options:
-                            print("🔄 Retrying yt-dlp metadata extraction WITHOUT proxy...")
-                            fallback_options = ydl_options.copy()
-                            fallback_options.pop('proxy', None)
-                            try:
-                                with yt_dlp.YoutubeDL(fallback_options) as ydl:
-                                    info = ydl.extract_info(url=url, download=False)
-                            except Exception as fe:
-                                print(f"❌ Fallback yt-dlp metadata extraction also failed: {fe}")
-                                raise fe
-                        else:
-                            raise e
+                        fallback_options = ydl_options.copy()
+                        fallback_options.pop('proxy', None)
+                        fallback_options.pop('cookiefile', None)
+                        if 'youtube.com' in url.lower() or 'youtu.be' in url.lower():
+                            fallback_options['extractor_args'] = {'youtube': {'player_client': ['ios', 'android']}}
+                        try:
+                            print("🔄 Retrying yt-dlp metadata extraction with clean fallback options...")
+                            with yt_dlp.YoutubeDL(fallback_options) as ydl:
+                                info = ydl.extract_info(url=url, download=False)
+                        except Exception as fe:
+                            print(f"❌ Fallback yt-dlp metadata extraction also failed: {fe}")
+                            raise fe
                     
                     under_limit = get_audio_limit(info)
                     if under_limit.get('limit') == False:
