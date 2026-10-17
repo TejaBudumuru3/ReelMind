@@ -204,6 +204,46 @@ def extract_x_fxtwitter_info(url: str) -> tuple[dict, dict] | None:
         return None
 
 
+def resolve_canonical_url(url: str) -> str:
+    """
+    Unshortens and resolves mobile redirect wrappers (e.g. facebook.com/share/v/...,
+    fb.watch/..., vm.tiktok.com/..., youtu.be/...) to their canonical destination URL.
+    Ensures downstream extractors (yt-dlp, FxTwitter, YouTube API) receive direct paths.
+    """
+    if not url:
+        return url
+
+    lower_url = url.lower()
+    should_resolve = any(pattern in lower_url for pattern in [
+        "facebook.com/share",
+        "fb.watch",
+        "instagram.com/share",
+        "vm.tiktok.com",
+        "vt.tiktok.com",
+        "t.co/",
+        "bit.ly/",
+        "tinyurl.com/"
+    ])
+
+    if not should_resolve:
+        return url
+
+    try:
+        with httpx.Client(follow_redirects=True, timeout=8.0) as client:
+            headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"}
+            res = client.head(url, headers=headers)
+            if res.status_code in (405, 403, 400):
+                res = client.get(url, headers=headers)
+            resolved = str(res.url)
+            if resolved and resolved != url:
+                logger.info(f"🔗 Unshortened redirect URL: {url} -> {resolved}")
+                return resolved
+    except Exception as e:
+        logger.warning(f"Failed to resolve redirect for {url}: {e}")
+
+    return url
+
+
 _COOKIE_FILE_PATH = None
 
 def get_cookies_file_path():
@@ -416,6 +456,7 @@ async def async_pipeline_link_to_text(job_id: str, url: str):
             return
 
         if job.status == 'PENDING':
+            url = resolve_canonical_url(url)
             
             await db.job.update(
                 where={"id": job_id},
