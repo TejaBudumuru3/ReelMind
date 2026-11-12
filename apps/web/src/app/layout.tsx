@@ -4,6 +4,11 @@ import "./globals.css";
 export const metadata: Metadata = {
   title: "ReelMind | AI Video Analytics",
   description: "Compare social media videos with AI.",
+  icons: {
+    icon: "/icon.svg",
+    shortcut: "/icon.svg",
+    apple: "/icon.svg",
+  },
 };
 
 export default function RootLayout({

@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useState, useEffect, use } from 'react';
+import Image from 'next/image';
 import { useSearchParams, useRouter } from 'next/navigation';
 import InspectorPane from './components/InspectorPane';
 import StagePane from './components/StagePane';
@@ -307,9 +308,14 @@ export default function SessionWorkbenchPage({ params }: { params: Promise<{ id:
       <header className="h-14 border-b border-[#27272a] bg-[#09090b] flex items-center justify-between px-2 sm:px-4 shrink-0 gap-2">
         <div className="flex items-center gap-2 sm:gap-4 flex-1 min-w-0 overflow-hidden">
           <div className="flex items-center gap-2 cursor-pointer group shrink-0" onClick={() => router.push('/')}>
-            <div className="w-7 h-7 sm:w-8 sm:h-8 rounded-lg bg-gradient-to-br from-[#8b5cf6] to-[#3b82f6] flex items-center justify-center shadow-[0_0_15px_rgba(139,92,246,0.3)] shrink-0">
-              <svg className="w-3.5 h-3.5 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}><path strokeLinecap="round" strokeLinejoin="round" d="M13 10V3L4 14h7v7l9-11h-7z" /></svg>
-            </div>
+            <Image
+              src="/icon.svg"
+              alt="ReelMind Logo"
+              width={28}
+              height={28}
+              className="rounded-lg shrink-0 shadow-sm"
+              priority
+            />
             <span className="font-display font-bold text-lg hidden sm:inline-block tracking-tight text-white group-hover:text-[#3b82f6] transition-colors">ReelMind</span>
           </div>
           <div className="h-4 w-px bg-[#27272a] shrink-0"></div>
