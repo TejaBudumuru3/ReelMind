@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
+import Image from 'next/image';
 import { useRouter } from 'next/navigation';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Sparkles, Video, History, Plus, Settings2, Play, CheckCircle2, ChevronDown, ClipboardPaste, X, Download } from 'lucide-react';
@@ -196,9 +197,14 @@ export default function HomeIngestionPage() {
       <header className="h-14 border-b border-[#27272a] bg-[#121215]/80 backdrop-blur-md flex items-center justify-between px-6 shrink-0 z-40 fixed top-0 w-full">
         <div className="flex items-center gap-4">
           <div className="flex items-center gap-2">
-            <div className="w-6 h-6 rounded bg-gradient-to-br from-[#3b82f6] to-[#c084fc] flex items-center justify-center shadow-lg shadow-[#3b82f6]/20">
-              <svg className="w-3.5 h-3.5 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}><path strokeLinecap="round" strokeLinejoin="round" d="M13 10V3L4 14h7v7l9-11h-7z" /></svg>
-            </div>
+            <Image
+              src="/icon.svg"
+              alt="ReelMind Logo"
+              width={26}
+              height={26}
+              className="rounded-md shrink-0 shadow-sm"
+              priority
+            />
             <span className="font-display font-bold text-lg tracking-tight text-white">ReelMind</span>
           </div>
           <div className="h-4 w-px bg-[#27272a] hidden sm:block"></div>
@@ -698,10 +704,14 @@ export default function HomeIngestionPage() {
               </button>
 
               <div className="flex flex-col items-center text-center">
-                <div className="w-14 h-14 rounded-2xl bg-gradient-to-br from-[#3b82f6]/20 to-[#c084fc]/20 border border-[#3b82f6]/30 flex items-center justify-center mb-5 shadow-lg shadow-[#3b82f6]/10">
-                  <svg className="w-7 h-7 text-[#3b82f6]" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
-                    <path strokeLinecap="round" strokeLinejoin="round" d="M13 10V3L4 14h7v7l9-11h-7z" />
-                  </svg>
+                <div className="mb-5 flex items-center justify-center">
+                  <Image
+                    src="/icon.svg"
+                    alt="ReelMind Logo"
+                    width={56}
+                    height={56}
+                    className="rounded-2xl shadow-lg border border-[#27272a]"
+                  />
                 </div>
 
                 <h3 className="text-xl sm:text-2xl font-bold font-display text-white tracking-tight mb-2">
